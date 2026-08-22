@@ -34,6 +34,16 @@ All notable changes to this project are documented here. The format follows
   the URL that was parsed.
 - `Policy.check_address()` and `permits_address()`, where `allowed_networks` beats the denied
   table so an internal-services fetcher can reach its internal services.
+- **Resolution.** `ssrfguard.resolve()` performs exactly one lookup and validates every answer,
+  returning `Address` objects that carry the `sockaddr` `getaddrinfo` produced — four elements
+  for IPv6, so the flow label and scope identifier survive to the connection.
+- A name resolving to both permitted and denied addresses is refused whole. `on_partial_block`
+  defaults to `"reject"` because that pattern is the signature of a DNS rebinding attempt rather
+  than of a misconfiguration; `"drop"` keeps the permitted answers, and the refusal names it.
+- `allowed_networks` governs addresses and `on_partial_block` governs names: an explicitly
+  allowed address does **not** rescue a name whose other address is denied.
+- A target carrying a literal address is looked up with `AI_NUMERICHOST`, so no lookup is
+  possible even if the host is not the address it claims.
 - `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
   The last two are raised by layers not built yet; they exist now so that every current
   `except SSRFGuardError` already covers them.
