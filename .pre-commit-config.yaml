@@ -120,11 +120,15 @@ repos:
         language: system
 
       # pre-push only: too slow for every commit, and the point of the gate is that nothing
-      # broken leaves the machine. `-m "not egress"` because a developer on a plane should see
-      # a clean suite, and CI runs the egress rows behind a probe that fails rather than skips.
+      # broken leaves the machine.
+      #
+      # **Invoked through the lane runner rather than spelling out a pytest command**, which is
+      # the same rule `ci.yml` follows and for the same reason: two spellings of "run the tests"
+      # drift, and this one had already drifted -- it ran without the coverage floor that the
+      # `fast` lane gates on, so a change could pass pre-push and fail CI.
       - id: pytest
-        name: pytest (unit, no egress)
-        entry: .venv/bin/python -m pytest -m "not egress"
+        name: fast lane (unit, no egress, coverage floor)
+        entry: .venv/bin/python scripts/lanes.py fast
         language: system
         types: [python]
         pass_filenames: false

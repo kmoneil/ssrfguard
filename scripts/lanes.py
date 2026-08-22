@@ -113,9 +113,24 @@ LANES: tuple[Lane, ...] = (
     ),
     Lane(
         name="fast",
-        checks="the unit suite on the development interpreter, with both adapter extras present",
-        needs="uv sync --frozen --all-extras. This is the pre-push hook's lane",
-        command=("pytest", "-m", "not egress"),
+        checks=(
+            "the unit suite on the development interpreter, with both adapter extras present, "
+            "and the coverage floor -- 95% because an untested branch in an address table is an "
+            "address nobody has ever asked about"
+        ),
+        needs=(
+            "uv sync --frozen --all-extras. This is the pre-push hook's lane, and the only one "
+            "that measures coverage: it is a property of the codebase rather than of an "
+            "interpreter, so measuring it once here beats five differing numbers across `compat`"
+        ),
+        command=(
+            "pytest",
+            "-m",
+            "not egress",
+            "--cov=ssrfguard",
+            "--cov-report=term-missing:skip-covered",
+            "--cov-fail-under=95",
+        ),
     ),
     Lane(
         name="compat",
