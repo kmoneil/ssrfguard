@@ -55,6 +55,17 @@ All notable changes to this project are documented here. The format follows
   The last two are raised by layers not built yet; they exist now so that every current
   `except SSRFGuardError` already covers them.
 
+### Proven
+
+- **The central claim is demonstrated, not designed.** A DNS server on loopback, serving real
+  wire-format answers from a dict a test edits mid-flight, drives ten tests: the connection lands
+  on the validated address after the record moves to the metadata endpoint; it does so even when
+  the record moves to an address that would also have been permitted; and `connect` asks the
+  nameserver nothing at all, counted rather than argued.
+- The same fixture carries a test of the **bug** — validate, then hand the name back to something
+  that resolves it again — which reaches the metadata address. If that ever stops working, the
+  fixture can no longer demonstrate rebinding and the tests above stop meaning anything.
+
 ### Notes
 
 - This table deliberately disagrees with `ipaddress.is_private` and `is_global` on 13 addresses,
