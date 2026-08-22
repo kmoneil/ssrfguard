@@ -1,0 +1,379 @@
+[project]
+name = "ssrfguard"
+# Single-sourced from the package, so `ssrfguard.__version__` and the installed
+# distribution cannot name different releases in the same bug report. See
+# `[tool.hatch.version]` below and `tests/test_packaging.py`, which asserts they agree.
+dynamic = ["version"]
+description = "SSRF protection that connects to the address it validated."
+readme = "README.md"
+# **3.10 is the lowest floor this project can actually verify**, and that is the argument for it
+# rather than a guess about who is out there.
+#
+# The draft floor was 3.9, on the reasoning that enterprises run old interpreters and a security
+# library that will not install on them does not get used where it is needed. That reasoning is
+# sound and 3.9 still fails it, because at 3.9 the proofs stop working:
+#
+#   - `requests` caps at 2.32.5 and `urllib3` at 2.6.3, while the connection seam this package
+#     depends on was verified against urllib3 2.7.0. Shipping the adapter at 3.9 means asserting
+#     a seam nobody measured.
+#   - `pytest` caps at 8.4.2 and `hypothesis` at 6.141.1, so the compatibility row runs a frozen
+#     toolchain that will drift further every month.
+#   - **mypy refuses `python_version = "3.9"` outright** — and warns rather than failing, so the
+#     type gate silently checks nothing about the floor while appearing to. At 3.10 it works,
+#     which restores a gate that a 3.9 floor leaves disarmed.
+#
+# A floor that cannot be type-checked or tested against current tools is a claim, not a promise.
+#
+# Vendor support, which is what the original argument was really reaching for, is intact at
+# 3.10: Ubuntu 22.04 LTS ships it and is supported into 2027 (2032 with ESM). Upstream security
+# support ends 2026-10, which is soon — **review this floor then** rather than treating it as
+# settled. 3.11 is the alternative and costs Ubuntu 22.04.
+#
+# The cost is still paid in `src`: no `typing.Self`, no `ExceptionGroup`, and
+# `from __future__ import annotations` in every module.
+requires-python = ">=3.10"
+license = "Apache-2.0"
+# The SPDX expression alone puts `License-Expression: Apache-2.0` in METADATA and ships no
+# grant text at all. Apache-2.0 section 4(a) requires the copy to travel with the distribution,
+# and a corporate compliance scan looks for the file, not the identifier.
+license-files = ["LICENSE"]
+authors = [{ name = "Kevin O'Neil", email = "kevin@oneil.xyz" }]
+keywords = ["ssrf", "security", "dns-rebinding", "http", "url-validation"]
+classifiers = [
+  # Alpha until the DNS-rebinding proof exists. The central claim of this
+  # package is that it connects to the address it validated; until a test flips a DNS record
+  # between validation and connect and asserts the pin held, that claim is unproven and no
+  # higher classifier is honest. Stated here, in README "Status" and in SECURITY.md's support
+  # window, so all three move together.
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+# **Empty, and that is the product.** This list is asserted empty by
+# `tests/test_zero_deps.py` and again, against a built wheel in a clean interpreter, by the
+# `zero-deps` lane. A capable library with a dependency tree is a procurement problem; a
+# capable library without one is a single approval.
+dependencies = []
+
+# Client adapters. Each imports its client **lazily, inside the function or class body**, so
+# `import ssrfguard` never touches httpx or requests — proved by the `zero-deps` lane, which
+# imports the package in an interpreter where neither is installed and fails if either appears
+# in `sys.modules`.
+#
+# The floors are the versions the seams were verified against, not the oldest that might work.
+# Both adapters reach into client internals — `httpcore.NetworkBackend.connect_tcp` and
+# `urllib3.connection.HTTPConnection._new_conn` — because that is what pinning requires: the
+# address has to be chosen at the moment the socket is created, and neither client exposes a
+# public hook there. Reaching into a private surface is only defensible against a version
+# somebody actually read, so a claim about an untested older release would be a guess wearing a
+# measurement's clothes. Raise a floor by re-reading the seam at the new version, not by
+# assuming it held.
+[project.optional-dependencies]
+httpx = [
+    "httpx>=0.28.1",
+]
+requests = [
+    "requests>=2.32",
+    "urllib3>=2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/kmoneil/ssrfguard"
+Source = "https://github.com/kmoneil/ssrfguard"
+Issues = "https://github.com/kmoneil/ssrfguard/issues"
+Changelog = "https://github.com/kmoneil/ssrfguard/blob/main/CHANGELOG.md"
+Security = "https://github.com/kmoneil/ssrfguard/blob/main/SECURITY.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/ssrfguard/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ssrfguard"]
+
+# What the source distribution carries, decided rather than defaulted. Hatchling's default is
+# "everything git does not ignore", which is the whole working tree.
+#
+# `tests/` stays in, for downstream packagers: Debian, Fedora and conda-forge rebuild from the
+# sdist and run the suite to validate the build. For this package that matters more than usual
+# — the suite *is* the security argument, and a distribution that ships the code without the
+# corpus that proves it is shipping an unverifiable claim.
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/SECURITY.md",
+  "/LICENSE",
+  "/pyproject.toml",
+]
+
+[dependency-groups]
+# `audit` is `scripts/audit_deps.py`'s tool, and it is its own group because pip-audit costs
+# roughly 18 packages over a default `uv sync` — among them `requests`, `urllib3` and
+# `certifi`. That is more than this project's entire shipped surface, for something one lane
+# runs.
+#
+# There is a second reason here that gantry-sftp does not have: pip-audit pulls `requests` and
+# `urllib3`, which are two of this package's *optional* adapters' dependencies. Installing the
+# audit group into the same environment as the `zero-deps` lane would make that lane's
+# "neither client is importable" precondition silently false. They stay in separate jobs.
+audit = [
+    "pip-audit>=2.10",
+]
+# `build` exists so the build backend comes out of `uv.lock` like everything else.
+#
+# `[build-system] requires` is the one dependency declaration in this file that `uv.lock` does
+# not cover: PEP 517 build requirements are resolved fresh, from PyPI, into an isolated
+# environment every time anything builds this project — so the code that produces the artifact
+# users install is the last unpinned, unhashed thing in the release path. `release.yml` syncs
+# this group and builds with `--no-build-isolation`, which makes hatchling arrive hashed from
+# the lock. `tests/test_packaging.py` asserts this group agrees with `[build-system] requires`.
+build = [
+    "hatchling>=1.27",
+]
+# httpx and requests are in `dev` rather than in groups of their own, and that is the opposite
+# call from `audit` above. They have to be installed for the adapter suites to run rather than
+# skip, which is what the Definition of Done asks for a shipped surface — and the `zero-deps`
+# lane exists precisely so that having them here cannot hide an eager import.
+dev = [
+  "httpx>=0.28.1",
+  "requests>=2.32",
+  "urllib3>=2.0",
+  "pytest>=8.3",
+  "hypothesis>=6.112",
+  "ruff>=0.14",
+  "mypy>=1.13",
+  "ty>=0.0.1a10",
+  "complexipy>=3.0",
+  "pre-commit>=4.0",
+  "mutmut>=3.2",
+  "basedpyright>=1.39.9",
+  "detect-secrets>=1.5.0",
+]
+
+# **The lock is resolved for the developer's interpreter, not for the 3.9 floor.**
+#
+# Without this, `uv` resolves `dev` for the whole `requires-python` range, so every tool above
+# is pinned to its newest 3.9-compatible release — which drags ruff, mypy and ty years
+# backwards to serve a floor that only the *shipped* code has to meet. The floor is a promise
+# about `src/`, not about the toolchain.
+#
+# The compatibility matrix is therefore deliberately **not** locked: the `compat` lane creates a
+# fresh environment per interpreter and installs the package plus pytest, resolved for that
+# interpreter. See `scripts/lanes.py`, which says the same thing where the lane is defined.
+[tool.uv]
+environments = ["python_version >= '3.13'"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+# **Explicit, rather than relying on `.gitignore`.** Ruff honours ignore files only inside a
+# git repository, so a fresh clone-less checkout — or a sandbox where `git init` has not run —
+# scans `.uv-cache/`, which is 97,000 findings in somebody else's code and makes the gate
+# useless before it has said anything about ours. Measured, not feared: that is exactly what
+# the first run in this tree did.
+extend-exclude = [".uv-cache", ".venv-compat", "_plans", "_tmp", "mutants"]
+# The floor, not the development interpreter: this is what stops 3.11+ syntax reaching `src/`,
+# and it is the only gate that can — mypy's `python_version` checks semantics, not syntax.
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",     # pycodestyle
+  "F",          # pyflakes
+  "I",          # isort
+  "N",          # pep8-naming
+  "UP",         # pyupgrade
+  "B",          # bugbear
+  "A",          # builtins shadowing
+  "C4",         # comprehensions
+  "C90",        # mccabe -- distinct ceiling from complexipy's cognitive one
+  "DTZ",        # naive datetimes
+  "T20",        # no print in shipped code
+  "PT",         # pytest style
+  "RET",        # return simplification
+  "SIM",        # simplify
+  "SLF",        # private member access
+  "TID",        # tidy imports
+  "PTH",        # pathlib over os.path
+  "ERA",        # commented-out code
+  "PL",         # pylint
+  "TRY",        # exception antipatterns
+  "RUF",
+  "S",          # bandit
+  "ASYNC",      # async antipatterns
+  "D",          # pydocstyle -- Google convention
+  "ANN",        # annotations required
+  "FA",         # future annotations required -- load-bearing at the 3.9 floor
+]
+ignore = [
+  "D105",    # magic method docstrings
+  "D107",    # __init__ docstring -- documented on the class
+  "TRY003",  # long messages outside exception class: our errors name the address they refused
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+# The policy constructor takes one keyword-only argument per independent policy dimension —
+# schemes, denied networks, allowed networks, ports, userinfo, partial-block behaviour,
+# redirect cap, proxy. Bundling them into a parameter object would move the same fields
+# somewhere else rather than remove any. 10 is a project-wide policy, not a per-function
+# exemption.
+max-args = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-pytest-style]
+# PT011 wants a `match=` on broad exception classes. The convention here is stronger and this
+# rule cannot see it: a blocked-address assertion pins the whole message, because the message
+# names the address that was refused and *which* rule refused it, and a substring match would
+# pass while the second half rotted.
+raises-require-match-for = []
+warns-require-match-for = []
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.ruff.lint.per-file-ignores]
+# `scripts/` is developer tooling rather than shipped code, and the lane runner inverts T20:
+# printing the table *is* what it does.
+#
+# **S603 is deliberately NOT ignored here**, which is where this diverges from the repository
+# this scaffolding came from. That one has a single subprocess call and could take a
+# directory-level waiver; this one spawns `uv`, `pytest`, `pip-audit` and a probe interpreter
+# across three scripts. A blanket "subprocess calls are fine in scripts/" would mean the next
+# one lands unexamined. Each call carries its own `# noqa: S603` and its own reason, and the
+# property those reasons assert — resolved absolute path, list argv, no shell — is the one
+# that makes them safe.
+"scripts/**" = ["T20"]
+"tests/**" = ["D", "ANN", "S101", "S603", "S607", "PLR2004", "T20"]
+
+# **The address corpora are hostile input by construction.** A test that proves
+# `http://2130706433/` is refused has to contain `2130706433`, and a test that proves the
+# metadata endpoint is unreachable has to contain `169.254.169.254`. S104 (binding all
+# interfaces) and S310 (url open) are the two that fire on that shape; they stay armed
+# everywhere else, because an unexplained hardcoded address anywhere in `src/` is exactly the
+# string-matching fast path this package exists not to have.
+"tests/test_address_corpus.py" = ["S104", "S310"]
+"tests/test_encodings.py" = ["S104", "S310"]
+
+# ---------------------------------------------------------------------------
+# mypy -- stricter of the two type gates, scoped to shipped code
+# ---------------------------------------------------------------------------
+[tool.mypy]
+strict = true
+files = ["src"]
+# The floor, checked against its *semantics* while running on the development interpreter: this
+# is what catches a call to something that does not exist there. ruff's `target-version` catches
+# the syntax half.
+#
+# **This gate only works because the floor is 3.10.** mypy refuses `python_version = "3.9"` —
+# and warns and carries on rather than failing, so at a 3.9 floor the setting is silently
+# ignored and this checks nothing about the floor while appearing to. Measured here, and it is
+# one of the reasons the floor is what it is.
+python_version = "3.10"
+python_executable = ".venv/bin/python"
+warn_unreachable = true
+disallow_any_explicit = false
+enable_error_code = [
+  "redundant-expr",
+  "truthy-bool",
+  "ignore-without-code",
+  "unused-awaitable",
+  "explicit-override",
+  # PEP 702. Off by default in mypy, and it is the rule that turns "a checker somewhere
+  # mentioned this" into a failed commit.
+  "deprecated",
+]
+
+# ---------------------------------------------------------------------------
+# ty -- second type gate, same scope
+# ---------------------------------------------------------------------------
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.10"
+
+# ty reports a deprecated call as a *warning*, and a warning does not fail `ty check`. A rule
+# that reports without failing is a rule nobody reads, so it is escalated.
+[tool.ty.rules]
+deprecated = "error"
+
+# ---------------------------------------------------------------------------
+# complexipy -- cognitive complexity (SonarQube S3776), distinct from mccabe
+# ---------------------------------------------------------------------------
+[tool.complexipy]
+max-complexity-allowed = 15
+paths = ["src"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Setting norecursedirs REPLACES pytest's defaults rather than extending them, so the defaults
+# are restated here. Dropping `.*` makes hypothesis warn that .hypothesis is being collected.
+norecursedirs = [
+  "*.egg",
+  ".*",
+  "_darcs",
+  "build",
+  "CVS",
+  "dist",
+  "node_modules",
+  "venv",
+  "{arch}",
+  "_plans",
+  "_tmp",
+]
+addopts = "-ra --strict-markers --strict-config"
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+  "httpx_adapter: needs the [httpx] extra installed",
+  "requests_adapter: needs the [requests] extra installed",
+  # The lane that proves the central claim: a resolver that changes its answer between
+  # validation and connect must not move the connection. Binds a UDP socket on loopback and serves DNS
+  # answers from a mutable dict; needs no network and no privileges, but it does need to be
+  # able to bind, which a locked-down container may refuse.
+  "rebind: needs a loopback UDP socket for the record-flipping resolver fixture",
+  # Reaches a real host. Kept out of the default run so a developer on a plane sees a clean
+  # suite rather than a wall of red, and gated in CI by a step that fails rather than skips.
+  "egress: reaches the public internet",
+  "slow: builds a distribution; seconds rather than milliseconds",
+]
+
+# ---------------------------------------------------------------------------
+# pyright / basedpyright -- IDE alignment only. NOT a committed gate.
+# The committed gate is `pyrightconfig.deprecations.json`, which is a different
+# configuration for a different purpose.
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["src"]
+exclude = ["tests", ".venv", "**/__pycache__"]
+typeCheckingMode = "standard"
+
+[tool.mutmut]
+paths_to_mutate = ["src/ssrfguard"]
+tests_dir = ["tests"]
