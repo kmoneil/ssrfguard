@@ -153,6 +153,7 @@ dev = [
   "requests>=2.32",
   "urllib3>=2.0",
   "pytest>=8.3",
+  "pytest-cov>=6.0",
   "hypothesis>=6.112",
   "ruff>=0.14",
   "mypy>=1.13",
@@ -273,8 +274,9 @@ ban-relative-imports = "parents"
 # interfaces) and S310 (url open) are the two that fire on that shape; they stay armed
 # everywhere else, because an unexplained hardcoded address anywhere in `src/` is exactly the
 # string-matching fast path this package exists not to have.
-"tests/test_address_corpus.py" = ["S104", "S310"]
-"tests/test_encodings.py" = ["S104", "S310"]
+"tests/test_address_table.py" = ["S104"]
+"tests/test_address_properties.py" = ["S104", "SLF001"]
+"tests/test_stdlib_drift.py" = ["S104"]
 
 # ---------------------------------------------------------------------------
 # mypy -- stricter of the two type gates, scoped to shipped code
@@ -347,6 +349,15 @@ norecursedirs = [
   "_plans",
   "_tmp",
 ]
+# **Coverage is NOT here, and that is deliberate.** It belongs to the `fast` lane, which owns
+# the flags -- see `scripts/lanes.py`. Putting `--cov` in `addopts` makes pytest-cov a hard
+# requirement of running the suite at all, which broke the `compat` lane the first time it ran:
+# those rows install the package and pytest, deliberately not the development toolchain, and
+# every one of them died on `unrecognized arguments: --cov`.
+#
+# It is also the right place on the merits. Coverage is a property of the codebase, measured
+# once on one interpreter; measuring it five times across the matrix produces five numbers that
+# differ for version-specific branches and gates on none of them meaningfully.
 addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
 filterwarnings = ["error"]
