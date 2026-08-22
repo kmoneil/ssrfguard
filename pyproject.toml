@@ -301,7 +301,12 @@ enable_error_code = [
   "truthy-bool",
   "ignore-without-code",
   "unused-awaitable",
-  "explicit-override",
+  # `explicit-override` is deliberately absent, and it is the one enabled-by-choice code this
+  # project cannot have. It requires `@typing.override`, which arrived in 3.12 -- so at the 3.10
+  # floor satisfying it means depending on `typing_extensions`, and a runtime dependency
+  # acquired to satisfy a type checker is the entire product traded for a lint. The alternative,
+  # a hand-rolled no-op `override`, would be a decorator that tells the checker something it
+  # cannot verify. Revisit if the floor ever reaches 3.12.
   # PEP 702. Off by default in mypy, and it is the rule that turns "a checker somewhere
   # mentioned this" into a failed commit.
   "deprecated",

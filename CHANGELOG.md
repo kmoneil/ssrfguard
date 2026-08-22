@@ -22,6 +22,21 @@ All notable changes to this project are documented here. The format follows
   construction rather than silently shadowing one of them.
 - `SSRFGuardError` and `BlockedAddressError`, whose messages name the block, its RFC and any
   translation hop walked to reach it.
+- **The policy layer.** `Policy.check_url()` decides everything about a URL that can be decided
+  without the network — scheme, port, credentials in the authority, host shape — and returns a
+  `Target`, which is an origin rather than a URL: no path, no query, no `geturl`, and a `__str__`
+  that renders `<Target https host=example.com port=443>`. A policy check is necessary and not
+  sufficient, and the return type is what keeps that true.
+- Host normalisation through the `idna` codec, the same transformation `socket.getaddrinfo`
+  applies internally, so `http://①②⑦.0.0.1/` is refused as loopback before any lookup happens.
+- URLs containing a control character are refused rather than normalised, because `urlsplit`
+  strips tab, newline and carriage return silently — so the URL that was checked would not be
+  the URL that was parsed.
+- `Policy.check_address()` and `permits_address()`, where `allowed_networks` beats the denied
+  table so an internal-services fetcher can reach its internal services.
+- `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
+  The last two are raised by layers not built yet; they exist now so that every current
+  `except SSRFGuardError` already covers them.
 
 ### Notes
 

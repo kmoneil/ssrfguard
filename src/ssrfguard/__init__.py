@@ -4,13 +4,20 @@ Every SSRF guard in Python validates a hostname and then hands the URL to an HTT
 resolves DNS a second time. The attacker moves the record in between. This package resolves
 once, validates every answer, and connects to the address it validated -- never to a name.
 
-Only the address layer is built so far::
+The address table and the policy layer are built so far::
 
-    >>> from ssrfguard import DEFAULT_DENIED
-    >>> DEFAULT_DENIED.classify("8.8.8.8").blocked
-    False
-    >>> DEFAULT_DENIED.classify("64:ff9b::7f00:1").blocked   # NAT64 carrying loopback
-    True
+    >>> from ssrfguard import Policy
+    >>> policy = Policy()
+    >>> policy.check_url("https://example.com/a/b?c=d")
+    <Target https host=example.com port=443>
+    >>> policy.check_url("http://\u2460\u2461\u2466.0.0.1/")   # circled digits are 127.0.0.1
+    Traceback (most recent call last):
+    ssrfguard.errors.BlockedURLError: ...
+
+**A policy check is necessary and not sufficient.** ``check_url`` returns a
+:class:`~ssrfguard.Target`, not a URL, because handing back something an HTTP client would
+accept is the shape of every advisory this package exists to answer -- the guard is not what
+fails, the next line of code is.
 
 **This package has no runtime dependencies and never will.** That is enforced by
 `tests/test_zero_deps.py` and, against a built wheel in a clean interpreter, by the `zero-deps`
@@ -20,8 +27,15 @@ lane -- not by intent.
 from __future__ import annotations
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, Verdict
+from ssrfguard._policy import PartialBlock, Policy, Target
 from ssrfguard._registry import REGISTRY_SNAPSHOT, Block, Reach
-from ssrfguard.errors import BlockedAddressError, SSRFGuardError
+from ssrfguard.errors import (
+    BlockedAddressError,
+    BlockedURLError,
+    ProxyUnsupportedError,
+    SSRFGuardError,
+    TooManyRedirectsError,
+)
 
 __all__ = [
     "DEFAULT_DENIED",
@@ -29,8 +43,14 @@ __all__ = [
     "AddressTable",
     "Block",
     "BlockedAddressError",
+    "BlockedURLError",
+    "PartialBlock",
+    "Policy",
+    "ProxyUnsupportedError",
     "Reach",
     "SSRFGuardError",
+    "Target",
+    "TooManyRedirectsError",
     "Verdict",
     "__version__",
 ]
