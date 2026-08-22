@@ -44,6 +44,13 @@ All notable changes to this project are documented here. The format follows
   allowed address does **not** rescue a name whose other address is denied.
 - A target carrying a literal address is looked up with `AI_NUMERICHOST`, so no lookup is
   possible even if the host is not the address it claims.
+- **Connection.** `ssrfguard.connect()` opens a socket to the first reachable address among
+  those already validated, passing the `sockaddr` through untouched. It takes the whole tuple
+  rather than the first address, because failing over is routine for dual-stack hosts — and is
+  only safe because a partially-denied name never reaches it.
+- `connect()` requires the policy rather than accepting one, so there is no path through this
+  package to a socket that skipped the check, and it confirms the connected peer is the address
+  that was validated before returning.
 - `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
   The last two are raised by layers not built yet; they exist now so that every current
   `except SSRFGuardError` already covers them.

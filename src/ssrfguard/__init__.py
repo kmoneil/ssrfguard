@@ -4,7 +4,7 @@ Every SSRF guard in Python validates a hostname and then hands the URL to an HTT
 resolves DNS a second time. The attacker moves the record in between. This package resolves
 once, validates every answer, and connects to the address it validated -- never to a name.
 
-The address table, the policy layer and resolution are built so far::
+The address table, the policy layer, resolution and connection are built so far::
 
     >>> from ssrfguard import Policy
     >>> policy = Policy()
@@ -27,6 +27,7 @@ lane -- not by intent.
 from __future__ import annotations
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, Verdict
+from ssrfguard._connect import SocketOption, connect
 from ssrfguard._policy import PartialBlock, Policy, Target
 from ssrfguard._registry import REGISTRY_SNAPSHOT, Block, Reach
 from ssrfguard._resolve import Address, Resolver, resolve
@@ -52,10 +53,12 @@ __all__ = [
     "Reach",
     "Resolver",
     "SSRFGuardError",
+    "SocketOption",
     "Target",
     "TooManyRedirectsError",
     "Verdict",
     "__version__",
+    "connect",
     "resolve",
 ]
 
