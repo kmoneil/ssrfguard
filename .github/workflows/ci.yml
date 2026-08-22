@@ -1,0 +1,307 @@
+# Continuous integration for ssrfguard.
+#
+# Every lane below is invoked through `scripts/lanes.py`, never by spelling out a pytest
+# command here. Two spellings of "how this project runs its tests" is how a lane ends up with
+# one set of flags locally and another in CI, and `tests/test_lanes.py` asserts that every lane
+# the runner knows about is named in this file.
+#
+# Third-party actions are pinned to a commit SHA with the tag in a trailing comment. A floating
+# tag is a mutable reference to somebody else's code with a token in scope. This project's
+# entire subject is the difference between the thing you validated and the thing you actually
+# reached, so it does not get to be relaxed about that. Re-pin deliberately, reading the diff,
+# rather than by moving the tag. `.github/dependabot.yml` is what keeps the pins from going
+# stale silently.
+#
+# **Two jobs here fail rather than skip when their prerequisite is missing**, which is the
+# opposite of what the test suite does on a developer's machine. `rebind` needs to bind a
+# loopback UDP socket and `egress` needs the public internet; both are the rows that prove the
+# central claim, so a run that skipped them and reported green would be asserting nothing
+# precisely where it matters most.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      weekly_lane:
+        description: "Which weekly lane to run (the gating jobs always run)"
+        type: choice
+        default: all
+        options: [all, none, mutation]
+  schedule:
+    # Weekly, for the lanes too slow to run per-change — and for `audit`, which is the one lane
+    # whose value is mostly in this trigger: an advisory is published against code that has not
+    # changed, so a lane that only ran per change would find it whenever somebody next happened
+    # to edit something.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Static gates: ruff, mypy --strict, ty, complexipy, deprecations, the uv.lock
+  # check, the exec bit, the secrets scan.
+  #
+  # Linux only, and that is a property of `.pre-commit-config.yaml` rather than a
+  # shortcut: its local hooks invoke `.venv/bin/*` by path, and Windows puts them
+  # in `.venv\Scripts`. Nothing these tools check is platform-dependent.
+  # ---------------------------------------------------------------------------
+  gates:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - run: uv run --frozen python scripts/lanes.py gates
+
+  # ---------------------------------------------------------------------------
+  # The claim on the front of the README, checked against a built artifact.
+  #
+  # **Deliberately not `uv sync`.** This lane builds the wheel and installs it
+  # alone into a fresh environment, because the failure it exists to catch —
+  # an adapter importing httpx at module scope instead of inside the function
+  # body — is invisible to every other lane here. All of them have both clients
+  # installed, so the eager import succeeds and nothing fails. Only an
+  # interpreter without them can see it.
+  #
+  # `scripts/check_zero_deps.py` checks the environment is clean *first* and
+  # exits 2 if it is not, rather than reporting a pass it did not earn.
+  # ---------------------------------------------------------------------------
+  zero-deps:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv run --no-project --python 3.13 python scripts/lanes.py zero-deps
+
+  # ---------------------------------------------------------------------------
+  # The unit suite on the development interpreter, both extras present, on both
+  # platforms. macOS is here rather than for completeness: it resolves
+  # `localhost` to `::1` first where most Linux images resolve to `127.0.0.1`
+  # first, and the partial-block rule — a name resolving to both a public and a
+  # private address is refused whole — is decided by exactly that ordering. A
+  # guard tested on one address family is a guard tested on half of what it will
+  # meet.
+  # ---------------------------------------------------------------------------
+  fast:
+    timeout-minutes: 20
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - run: uv run --frozen python scripts/lanes.py fast
+
+  # ---------------------------------------------------------------------------
+  # Every supported interpreter.
+  #
+  # **This matrix is load-bearing rather than routine.** Most libraries matrix
+  # on Python to catch syntax and API drift. This one matrices because the
+  # answer it computes differs by interpreter: CVE-2024-4032 moved `ipaddress`'s
+  # idea of which addresses are private, and `is_global` still returns True for
+  # `64:ff9b::7f00:1` — a NAT64 address a gateway translates to 127.0.0.1 — on
+  # every version. That is why this package ships its own address table, and the
+  # assertions pinning it against the standard library's only mean something
+  # when they run on more than one interpreter.
+  #
+  # **Deliberately unlocked, and that is not laziness.** `uv.lock` is resolved
+  # for `python_version >= '3.13'` so the toolchain is not dragged back to the
+  # floor to serve a promise that is only about `src/`. Each row therefore
+  # builds its own environment, resolved for its own interpreter. The extras are
+  # not installed here — httpx and requests have their own floors and their own
+  # matrix in `adapters`; this row is about the library and the standard library.
+  # ---------------------------------------------------------------------------
+  compat:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python }}
+      - run: uv venv .venv-compat --python ${{ matrix.python }}
+      - run: uv pip install --python .venv-compat/bin/python -e . pytest hypothesis
+        # Invoked with the matrix row's own interpreter. `scripts/lanes.py` resolves a lane's
+        # tool from the directory beside `sys.executable` before it looks at `.venv/`, which is
+        # what makes this pick that row's pytest rather than the development one — see the
+        # note on `_resolve`.
+      - run: .venv-compat/bin/python scripts/lanes.py compat
+
+  # ---------------------------------------------------------------------------
+  # The lane that proves the product claim.
+  #
+  # A resolver fixture that changes its answer between the validation call and
+  # the connect call, asserting the connection lands on the pinned first answer.
+  # It needs no network and no privileges — just a UDP socket on loopback — but
+  # a hardened container can refuse the bind, and the probe below turns that
+  # into a red job rather than a green one with the interesting rows skipped.
+  # ---------------------------------------------------------------------------
+  rebind:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - name: fail rather than skip if this runner cannot bind a loopback resolver
+        run: |
+          uv run --frozen python -c "
+          import socket, sys
+          try:
+              s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+              s.bind(('127.0.0.1', 0))
+              print('bound a loopback UDP socket on port', s.getsockname()[1])
+              s.close()
+          except OSError as exc:
+              print('cannot bind a loopback UDP socket:', exc, file=sys.stderr)
+              sys.exit(1)
+          "
+      - run: uv run --frozen python scripts/lanes.py rebind
+
+  # ---------------------------------------------------------------------------
+  # Both seams against one shared matrix, so httpx and requests cannot drift
+  # apart — including the assertion neither of them may ever fail: the TLS
+  # `server_hostname` is the hostname, never the pinned IP. Passing an IP there
+  # silently disables certificate hostname verification, which trades an SSRF
+  # hole for a worse one.
+  # ---------------------------------------------------------------------------
+  adapters:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - run: uv run --frozen python scripts/lanes.py adapters
+
+  # ---------------------------------------------------------------------------
+  # The seams against a real server.
+  #
+  # Same shape as `rebind` and for the same reason, measured rather than feared
+  # in the repository this scaffolding came from: a lane whose prerequisite is
+  # absent runs to `passed, skipped` and exit 0, and the skipped rows are
+  # precisely the ones under test. The probe makes "no egress" a red job.
+  # ---------------------------------------------------------------------------
+  egress:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - name: fail rather than skip if this runner has no egress
+        run: |
+          uv run --frozen python -c "
+          import socket, sys
+          try:
+              socket.create_connection(('example.com', 443), timeout=10).close()
+              print('reached example.com:443')
+          except OSError as exc:
+              print('no outbound network:', exc, file=sys.stderr)
+              sys.exit(1)
+          "
+      - run: uv run --frozen python scripts/lanes.py egress
+
+  # ---------------------------------------------------------------------------
+  # Known advisories, two scopes, two verdicts.
+  #
+  # The shipped scope is empty by construction, and printing that empty set
+  # every run is most of what this lane is for: it is the README's claim
+  # verified rather than asserted.
+  #
+  # Its own job rather than a step on `gates`, because pip-audit pulls
+  # `requests` and `urllib3` — two of this package's optional adapters'
+  # dependencies. Installing it alongside `zero-deps` would make that lane's
+  # "neither client is importable" precondition silently false.
+  #
+  # Not behind an `if:` — per change *and* weekly, for the reason in the
+  # `schedule:` comment above.
+  # ---------------------------------------------------------------------------
+  audit:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --group audit
+      - run: uv run --frozen python scripts/lanes.py audit
+
+  # ---------------------------------------------------------------------------
+  # The unit suite again with the socket and file-descriptor leak check armed.
+  # A separate job rather than a flag on `fast`: a library that opens sockets
+  # for a living should not make the gating lane pay for the check on every run.
+  # ---------------------------------------------------------------------------
+  leaks:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - run: uv run --frozen python scripts/lanes.py leaks
+
+  # ---------------------------------------------------------------------------
+  # Weekly and on demand. It cannot gate: `mutmut run` exits 0 whether or not
+  # mutants survive, and no register of known-equivalent survivors is committed,
+  # so there is nothing for a machine to diff a run against. `mutmut results` is
+  # printed so a human can.
+  # ---------------------------------------------------------------------------
+  mutation:
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.weekly_lane == 'all' || inputs.weekly_lane == 'mutation'))
+    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen --all-extras
+      - run: uv run --frozen python scripts/lanes.py mutation
+      - run: uv run --frozen mutmut results

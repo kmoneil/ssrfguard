@@ -1,0 +1,67 @@
+# ssrfguard
+
+**SSRF protection that connects to the address it validated.**
+
+Zero runtime dependencies, enforced by a test rather than by intent.
+
+## Status
+
+**Alpha, and nothing is built yet.** This repository currently holds the design, the scaffolding
+and the proofs-of-mechanism. The classifier stays at `3 - Alpha` until the DNS-rebinding test
+exists — the central claim of this package is that it connects to the address it validated, and
+until a test flips a DNS record between validation and connect and asserts the pin held, that
+claim is unproven.
+
+## The problem
+
+Every SSRF guard in Python validates a hostname and then hands the URL to an HTTP client that
+resolves DNS a second time. The attacker moves the record in between. The guard validates an IP
+it then discards; the connection re-resolves an unpinned hostname.
+
+2026 alone produced this bug in `datamodel-code-generator` (CVE-2026-55391), `mcp-atlassian`
+(CVE-2026-27826), `crewAI` (CVE-2026-62240), `mlflow`, AutoGPT, Craft CMS and `pydantic-ai`.
+
+## The fix
+
+Resolve once, validate every answer, and connect to that address — never to a name. The pinning
+lives at the client's connection seam, so redirects, retries and pool refills all pass through
+it, and the certificate is still verified against the *hostname*.
+
+```python
+from ssrfguard import Policy
+from ssrfguard.httpx import Client
+
+with Client(policy=Policy()) as client:
+    client.get(untrusted_url)
+```
+
+## Requirements
+
+Python 3.10 or newer, and nothing else. The floor is 3.10 because that is the lowest interpreter
+this project can fully verify: below it, `requests` and `urllib3` cap at releases older than the
+connection seam was measured against, and mypy refuses to type-check the floor at all. Ubuntu
+22.04 LTS ships 3.10 and is supported into 2027.
+
+## Why zero dependencies
+
+A capable library with a dependency tree is a procurement problem. A capable library without one
+is a single approval.
+
+`pip install ssrfguard` installs exactly one thing. The adapters live behind extras
+(`ssrfguard[httpx]`, `ssrfguard[requests]`) and import their client lazily, so importing the
+package never touches third-party code. This is checked two ways: `tests/test_zero_deps.py`
+reads the built metadata, and the `zero-deps` CI lane installs the wheel alone into a clean
+interpreter and fails if importing it loads anything that is not ours.
+
+The SBOM attached to every release is nearly empty. That is the point.
+
+## What this is not
+
+**This is not a replacement for network egress control.** A library cannot stop a compromised
+process from opening a socket, and claiming otherwise is how teams end up with one control where
+they needed two. It also does not inspect application-layer traffic once a permitted host is
+reached, and it does not bound DNS resolution time.
+
+## License
+
+Apache-2.0.

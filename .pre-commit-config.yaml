@@ -1,0 +1,131 @@
+# Python tools are LOCAL hooks calling .venv/bin/*, so their versions track uv.lock rather than
+# a mirror repo that drifts from it. `pre-commit autoupdate` bumps the upstream repos below;
+# the local ones move when `uv lock` moves.
+#
+# Install once:  .venv/bin/pre-commit install
+# Never commit with --no-verify.
+
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: .venv/bin/ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff (format)
+        entry: .venv/bin/ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # mypy and ty are both scoped to `src` by pyproject, and both are configured to check
+      # against the **3.9 floor's semantics** while running on the development interpreter.
+      # Passing filenames would drag in tests/, which is deliberately exempt — so both run
+      # project-wide and ignore the staged file list.
+      - id: mypy
+        name: mypy --strict (src)
+        entry: .venv/bin/mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: ty
+        name: ty (src)
+        entry: .venv/bin/ty check
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: complexipy
+        name: complexipy (cognitive complexity <= 15)
+        entry: .venv/bin/complexipy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # The three type checkers vendor different typeshed snapshots and only pyright's
+      # currently carries some of the stdlib deprecations. Kept as a third gate for that
+      # reason; see `pyrightconfig.deprecations.json`, which checks at the *newest* supported
+      # interpreter rather than the floor — an API deprecated in 3.12 is invisible to a 3.9
+      # typeshed.
+      - id: deprecations
+        name: no deprecated APIs (basedpyright, reportDeprecated)
+        entry: .venv/bin/basedpyright -p pyrightconfig.deprecations.json
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # `UV_CACHE_DIR` is relative so it resolves against the repository root — pre-commit runs
+      # hooks from there. An absolute path here would be an environment-specific fact baked
+      # into a committed file, which fails on the first runner that does not have it.
+      - id: uv-lock
+        name: uv lock is in sync with pyproject
+        entry: env UV_CACHE_DIR=.uv-cache uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+      # Invoked via `bash` rather than executed, so the hook that forbids the exec bit does not
+      # need the exec bit itself and does not have to allowlist its own script.
+      - id: forbid-exec-bit
+        name: no executable bit in the git index
+        entry: bash scripts/forbid_exec_bit.sh
+        language: system
+        pass_filenames: false
+
+      # Runs on every file type rather than on Python: a credential lands in a YAML, a TOML or
+      # a Markdown snippet at least as easily as in a module.
+      #
+      # The baseline is keyed by (file, hashed secret, line) rather than being a file-level
+      # exclusion, which is what makes it safe to have: a genuine secret added to an
+      # already-listed file still fails.
+      #
+      # **Creating and updating it are two different commands, and mixing them up costs you a
+      # filter.** Creation is the redirect form, once:
+      #     .venv/bin/detect-secrets scan > .secrets.baseline
+      # Every update after that is the `--baseline` form:
+      #     .venv/bin/detect-secrets scan --baseline .secrets.baseline
+      # The redirect form on an *existing* baseline rebuilds it from scratch and drops the
+      # `filters_used` block it had accumulated — including
+      # `detect_secrets.filters.common.is_baseline_file`, which is what stops the baseline
+      # being scanned as evidence of itself. `--baseline` on a file that does not exist yet is
+      # rejected outright, which is why creation cannot use it. Read the diff rather than
+      # trusting it either way.
+      - id: detect-secrets
+        name: no new secrets (detect-secrets)
+        entry: .venv/bin/detect-secrets-hook --baseline .secrets.baseline
+        language: system
+
+      # pre-push only: too slow for every commit, and the point of the gate is that nothing
+      # broken leaves the machine. `-m "not egress"` because a developer on a plane should see
+      # a clean suite, and CI runs the egress rows behind a probe that fails rather than skips.
+      - id: pytest
+        name: pytest (unit, no egress)
+        entry: .venv/bin/python -m pytest -m "not egress"
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
