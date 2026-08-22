@@ -99,6 +99,11 @@ repos:
       # Runs on every file type rather than on Python: a credential lands in a YAML, a TOML or
       # a Markdown snippet at least as easily as in a module.
       #
+      # The baseline holds one entry and it was read before it was written:
+      # `http://user:pass@example.com/` in `tests/test_policy_urls.py`, which is a fixture
+      # proving the policy refuses credentials in a URL authority -- a test of that has to
+      # contain the thing it searches for. No real credential is in it.
+      #
       # The baseline is keyed by (file, hashed secret, line) rather than being a file-level
       # exclusion, which is what makes it safe to have: a genuine secret added to an
       # already-listed file still fails.
