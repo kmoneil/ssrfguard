@@ -292,6 +292,13 @@ ban-relative-imports = "parents"
 # so asserting it through a public spelling would be asserting something else.
 "tests/test_requests_adapter.py" = ["SLF001"]
 
+# **The two private reads here are the measurements, not shortcuts.** `transport._pool` is which
+# pool httpx built, which is the whole content of what `allow_proxy` means; `client._mounts` is
+# where httpx records the transport a request will be routed to, and it is the only place the
+# "an explicit proxy= builds a second transport" gap is visible at all. Asserting either through
+# public API is not possible, and not asserting them leaves the claims unchecked.
+"tests/test_httpx_adapter.py" = ["SLF001"]
+
 # ---------------------------------------------------------------------------
 # mypy -- stricter of the two type gates, scoped to shipped code
 # ---------------------------------------------------------------------------

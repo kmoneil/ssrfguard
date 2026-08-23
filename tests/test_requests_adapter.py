@@ -42,6 +42,7 @@ from ssrfguard import BlockedAddressError, BlockedURLError, Policy, ProxyUnsuppo
 from ssrfguard.requests import SafeAdapter, Session
 
 from .loopback_http import RecordingServer
+from .stub_resolver import Resolver
 
 pytestmark = pytest.mark.requests_adapter
 
@@ -52,28 +53,6 @@ LOOPBACK = ("127.0.0.0/8",)
 #: Where the denied tests point. Refused by the table, and the address every advisory in this
 #: package's README is ultimately about.
 METADATA = "169.254.169.254"
-
-
-class Resolver:
-    """A ``getaddrinfo`` stand-in that answers from a dict and counts what it was asked.
-
-    The dict is writable while a test runs. That does not demonstrate rebinding -- see this
-    module's docstring -- but it does let a test give a *second* connection a different answer
-    from the first, which is how "each connection is validated on its own merits" is checked.
-    """
-
-    def __init__(self, **answers: str) -> None:
-        self.answers: dict[str, str] = dict(answers)
-        self.asked: list[str] = []
-
-    def __call__(self, host: str, port: int, *_args: object) -> list[tuple]:
-        self.asked.append(host)
-        address = self.answers.get(host)
-        if address is None:
-            raise socket.gaierror(socket.EAI_NONAME, f"{host}: no answer")
-        if ":" in address:
-            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0))]
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
 
 
 @pytest.fixture(autouse=True)

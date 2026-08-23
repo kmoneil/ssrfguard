@@ -33,8 +33,12 @@ from ssrfguard.errors import BlockedAddressError
 
 __all__ = ["SocketOption", "connect"]
 
-#: One ``setsockopt`` call, as the HTTP clients pass them around.
-SocketOption = tuple[int, int, "int | bytes"]
+#: One ``setsockopt`` call, in every shape the clients express one. Three elements is the common
+#: form; four is CPython's ``setsockopt(level, optname, None, optlen)``, which httpcore's own
+#: type allows and which this therefore has to be able to carry. **Applied to the socket
+#: unchanged**, for the same reason the sockaddr is: a value taken apart here is a value that can
+#: lose something on the way back together.
+SocketOption = tuple[int, int, "int | bytes | bytearray"] | tuple[int, int, None, int]
 
 
 def _open(
@@ -50,7 +54,7 @@ def _open(
         timeout: Seconds to wait for this attempt. Per attempt rather than for the whole
             sequence, matching ``socket.create_connection``.
         source_address: Local address to bind before connecting.
-        socket_options: ``setsockopt`` triples applied before connecting.
+        socket_options: ``setsockopt`` arguments applied before connecting.
 
     Returns:
         The connected socket.
@@ -61,8 +65,8 @@ def _open(
     """
     sock = socket.socket(address.family, socket.SOCK_STREAM)
     try:
-        for level, option, value in socket_options or ():
-            sock.setsockopt(level, option, value)
+        for option in socket_options or ():
+            sock.setsockopt(*option)
         if timeout is not None:
             sock.settimeout(timeout)
         if source_address is not None:
@@ -115,7 +119,7 @@ def connect(
         timeout: Seconds to wait per attempt, not for the sequence. ``None`` uses the system
             default, which may be several minutes.
         source_address: Local address to bind before connecting.
-        socket_options: ``setsockopt`` triples applied to every attempt.
+        socket_options: ``setsockopt`` arguments applied to every attempt.
 
     Returns:
         A connected socket, whose peer has been confirmed to be the address that was validated.
