@@ -17,7 +17,7 @@ Two rules govern everything here:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 
 from ssrfguard._registry import REGISTRY_SNAPSHOT, TABLE, Block, Reach
@@ -118,20 +118,38 @@ def _embedded_v4(address: IPv6Address, network: IPNetwork) -> tuple[IPAddress, .
     return ()  # pragma: no cover - unreachable while TRANSLATED is a closed set
 
 
+@dataclass(frozen=True)
 class AddressTable:
     """A set of blocks, and the question "may a fetcher connect to this address".
 
     Built once at import as :data:`DEFAULT_DENIED`. Users who need a different answer build
     their own rather than mutating this one, because a table that can be edited after the policy
     holding it was constructed is a policy whose behaviour depends on when it is asked.
+
+    **Frozen so that sentence is a property rather than a request.** It used to be a plain class
+    that said the same thing and enforced none of it: `DEFAULT_DENIED` is a module-level
+    singleton and the default for every :class:`~ssrfguard.Policy`, so one assignment anywhere in
+    a process changed what every policy in it refused, retroactively. The sharper form was
+    quieter -- ``blocks`` is the attribute with the public-looking name, every lookup reads the
+    index derived from it, and a write to one left the table reporting a rule it did not enforce.
+    That is this package's own failure mode, one layer down.
+
+    Attributes:
+        blocks: The blocks this table knows about.
+        snapshot: The registry date these blocks were transcribed from. Keyword-only: it is a
+            provenance stamp, not a second positional.
     """
 
-    def __init__(self, blocks: tuple[Block, ...], *, snapshot: str = REGISTRY_SNAPSHOT) -> None:
-        """Index a set of blocks for longest-prefix lookup.
+    blocks: tuple[Block, ...]
+    _: KW_ONLY
+    snapshot: str = REGISTRY_SNAPSHOT
+    # Sorted longest-prefix-first per family, so the first containing entry found is the most
+    # specific one. Precomputed because this runs on every resolved address of every request,
+    # and derived rather than given -- which is why it is not an argument.
+    _by_version: dict[int, tuple[Block, ...]] = field(init=False, repr=False, compare=False)
 
-        Args:
-            blocks: The blocks this table knows about.
-            snapshot: The registry date these blocks were transcribed from.
+    def __post_init__(self) -> None:
+        """Refuse a duplicated network, then index for longest-prefix lookup.
 
         Raises:
             ValueError: If two blocks name the same network. Lookup is longest-prefix and
@@ -141,27 +159,43 @@ class AddressTable:
                 not, so this refuses at construction rather than at the address that needed it.
         """
         seen: set[IPNetwork] = set()
-        duplicates = sorted(
-            str(b.network)
-            for b in blocks
-            if b.network in seen or seen.add(b.network)  # type: ignore[func-returns-value]
-        )
+        duplicates: list[str] = []
+        for block in self.blocks:
+            if block.network in seen:
+                duplicates.append(str(block.network))
+            seen.add(block.network)
         if duplicates:
-            raise ValueError(f"address table has duplicate networks: {', '.join(duplicates)}")
-        self.snapshot = snapshot
-        self.blocks = blocks
-        # Sorted longest-prefix-first, so the first containing entry found is the most specific
-        # one. Precomputed because this runs on every resolved address of every request.
-        self._by_version: dict[int, tuple[Block, ...]] = {
-            version: tuple(
-                sorted(
-                    (b for b in blocks if b.network.version == version),
-                    key=lambda b: b.network.prefixlen,
-                    reverse=True,
-                )
+            raise ValueError(
+                f"address table has duplicate networks: {', '.join(sorted(duplicates))}"
             )
-            for version in (4, 6)
-        }
+        object.__setattr__(
+            self,
+            "_by_version",
+            {
+                version: tuple(
+                    sorted(
+                        (b for b in self.blocks if b.network.version == version),
+                        key=lambda b: b.network.prefixlen,
+                        reverse=True,
+                    )
+                )
+                for version in (4, 6)
+            },
+        )
+
+    def __repr__(self) -> str:
+        """Render a count and a provenance stamp rather than sixty blocks.
+
+        The dataclass default spells every field out, and a table holds the whole registry -- so
+        the generated form is eleven kilobytes, and because a :class:`~ssrfguard.Policy` carries
+        a table, it is eleven kilobytes *inside* every policy repr that reaches a log line, a
+        traceback or a REPL. :meth:`ssrfguard.Target.__repr__` exists for the same reason and the
+        argument is the same one: the rendering nobody chose is the rendering everybody sees.
+
+        Returns:
+            The size of the table and the registry date it was transcribed from.
+        """
+        return f"<AddressTable {len(self.blocks)} blocks, registry {self.snapshot}>"
 
     def match(self, address: IPAddress) -> Block | None:
         """Find the most specific block containing an address.

@@ -19,7 +19,14 @@ All notable changes to this project are documented here. The format follows
   as loopback and `64:ff9b::808:808` is permitted as 8.8.8.8. Teredo decodes both the server and
   the bit-inverted client address.
 - `AddressTable` for callers who need a different answer, which refuses duplicate networks at
-  construction rather than silently shadowing one of them.
+  construction rather than silently shadowing one of them. **It is frozen**, because
+  `DEFAULT_DENIED` is a module-level singleton and the default for every `Policy`, so a plain
+  class meant one assignment anywhere in a process changed what every policy in it refused,
+  retroactively. The quieter half is the reason it matters: `blocks` is the attribute with the
+  public-looking name and every lookup reads the index derived from it, so a write to one left
+  the table reporting a rule it did not enforce. Its `repr` is a count and a registry date rather
+  than the generated one, which is eleven kilobytes of blocks *inside* every policy repr that
+  reaches a log line — the same argument as `Target.__repr__`, found the same way.
 - `SSRFGuardError` and `BlockedAddressError`, whose messages name the block, its RFC and any
   translation hop walked to reach it.
 - **The policy layer.** `Policy.check_url()` decides everything about a URL that can be decided
@@ -199,6 +206,13 @@ All notable changes to this project are documented here. The format follows
   trailing dot defeats it, so does the wrong case and a CNAME — and the error quality it would
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
+
+- **The `fast` lane measures branch coverage**, which is what its own rationale always described:
+  "an untested branch in an address table is an address nobody has ever asked about". Statement
+  coverage cannot see a branch — both lines of an `if` execute, only one edge between them ever
+  does — and the suite sat at 100% statements with two branches unexercised. One of them was
+  `AsyncClient(transport=…)`, a documented path on a shipped client surface that no test had
+  ever constructed. Both are now covered and the floor is 99%.
 
 ### Proven
 
