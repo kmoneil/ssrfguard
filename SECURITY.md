@@ -75,6 +75,20 @@ These are scope decisions with reasons, not deflections.
   length nobody bounded. Any way one request can consume attempts, sockets, memory or wall-clock
   **inside this package** without a ceiling is in scope.
 
+  **A ceiling in the wrong unit is the shape this has already taken once**, so the currency is
+  written down rather than left to inference: the question is not how long a URL may be but how
+  much more one URL may cost than another. `max_url_length` alone did not answer it. It counts
+  characters of URL, and the expensive characters are the ones in the *host*, because the `idna`
+  codec runs nameprep per label at roughly 250 times the price of the scan; a URL comfortably
+  inside 8192 characters could carry 389 non-ASCII labels, cost 14.9 milliseconds of one worker,
+  and be accepted. The host is therefore capped separately at the 253 characters DNS can carry,
+  before normalisation rather than after. **The most expensive URL a default policy accepts now
+  costs about 130 times an ordinary one**, and a URL that beats that by an order of magnitude is
+  a finding. What `tests/test_cost.py` gates is the mechanism rather than that headline: the
+  `idna` arm may not cost more than thirty times the ASCII arm at the same URL length, on every
+  supported interpreter. The headline is reported by the `cost` lane and not asserted, because
+  making the ordinary case faster raises it without anything getting slower.
+
   **The response body is not**, and the boundary is worth stating because the sentence above
   would otherwise cover it. Once a permitted host is reached, what it sends back is the client's
   to bound, with `stream=True` and a read limit on requests or `client.stream()` on httpx, and
@@ -86,6 +100,14 @@ These are scope decisions with reasons, not deflections.
   blocked an event loop would freeze every unrelated request in the process rather than the one
   that asked for it, so `ssrfguard.httpx.AsyncClient` resolves off the loop in a worker thread.
   A request through it that does stall the loop is a bug, not a documented limitation.
+
+  **What that leaves is a bound, and the bound is documented rather than in scope.** A thread
+  blocked in `getaddrinfo` cannot be cancelled, so held lookups accumulate until the client's
+  `resolver_slots` are gone, and past that point a new *name* waits. Connections already open are
+  unaffected, which is what keeps this a limit rather than an outage, and the pool is the
+  client's own rather than a process-wide default, so a stall cannot starve unrelated thread
+  work elsewhere on the event loop. A held lookup blocking a request over an already-open
+  connection would be a finding.
 - **A host you deliberately allowed, behaving badly within its own rights.** Adding a network to
   `allowed_networks` is an authorization decision you made.
 - **Vulnerabilities in httpx, requests or urllib3 themselves.** Those belong to their projects.

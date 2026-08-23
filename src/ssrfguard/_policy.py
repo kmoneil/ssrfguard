@@ -227,10 +227,15 @@ class Policy:
             **This is a ceiling, not a ReDoS fix.** Measured across four octaves, ``check_url``
             is strictly linear on both paths, since doubling the input doubles the time, and
             ``_HOSTNAME`` cannot backtrack because every repetition in it must consume a literal
-            dot. What it did not have was a bound: the non-ASCII path costs about 1.9
-            microseconds per character, because the ``idna`` codec runs nameprep per label, so a
-            10MB URL was about 19 CPU-seconds of one worker. ``SECURITY.md`` says any way one
-            request can consume wall-clock without a ceiling is in scope, and this had none.
+            dot. What it did not have was a bound: re-measured 2026-08-23 on 3.13, the ASCII scan
+            costs about 7 nanoseconds per character and the non-ASCII path about 1785 per
+            character *of host*, because the ``idna`` codec runs nameprep per label, so a 10MB URL
+            was about 19 CPU-seconds of one worker. ``SECURITY.md`` says any way one request can
+            consume wall-clock without a ceiling is in scope, and this had none.
+
+            The linearity is no longer argued from the regex alone: ``tests/test_cost.py``
+            measures an 8 KiB URL against a 1 KiB one and fails if the ratio approaches what
+            quadratic scanning would produce.
 
             8192 because that is where nginx, Apache and IIS converge for a request line, a
             number a caller can recognise rather than one this package invented.
