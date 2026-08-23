@@ -19,12 +19,12 @@ suites skip rather than run, and a green suite that skipped the adapters has pro
 the two seams this package exists to provide.
 
 `.python-version` says 3.13, and `uv.lock` is resolved for it. **The supported floor is 3.10 and
-that is a promise about `src/`, not about the toolchain** -- locking the development tools for the
+that is a promise about `src/`, not about the toolchain.** Locking the development tools for the
 floor would drag ruff, mypy and ty years backwards to serve a promise they are not part of. The
 compatibility matrix builds its own environment per interpreter for exactly that reason.
 
 If `uv` cannot write its cache, `UV_CACHE_DIR=.uv-cache` puts it in the repository instead. That is
-a workaround for a locked-down machine, not a project requirement -- do not bake it into anything
+a workaround for a locked-down machine, not a project requirement. Do not bake it into anything
 committed.
 
 ## Running things
@@ -47,7 +47,7 @@ This is also why there is no Makefile and should not be one. `scripts/lanes.py` 
 better table than a hand-written `help` target, it stays correct because `tests/test_lanes.py`
 asserts that every lane it knows about appears in the CI workflow, and a second runner would be a
 second place for a flag to drift. If you want `make test` muscle memory badly enough, generate the
-targets from `--list` and add a test that the two agree -- do not hand-maintain them.
+targets from `--list` and add a test that the two agree. Do not hand-maintain them.
 
 **The pre-push hook runs `fast`, and `fast` is not everything.** If you touched a seam, run
 `adapters` and `rebind` before you push; if you touched the address table or its generator, run
@@ -61,17 +61,18 @@ stronger form: check that the test actually reds when you revert the fix. A test
 failed is indistinguishable from one that cannot, which is the same argument this repository makes
 about its own leak check.
 
-**A changelog entry**, under `Unreleased`, saying what changed and *why* -- the existing entries are
-the house style and they are longer than a one-liner on purpose.
+**A changelog entry**, under `Unreleased`, saying what changed and *why*. The existing entries are
+the house style, and they are longer than a one-liner on purpose.
 
 **Comments that explain why, not what.** This codebase is unusually heavy on prose and that is
 deliberate: a control whose reasoning nobody can reconstruct is a control that gets configured
 around. If a line is the way it is because of something measured, say what was measured. If it
 departs from a registry, a specification or a client's documented behaviour, say which and say why.
 
-**Coverage is measured as branches**, with the floor at 99%. Statement coverage cannot see a branch
--- both lines of an `if` execute, only one edge between them does -- and the gap that motivated the
-change was a documented client path no test had ever constructed while the report said 100%.
+**Coverage is measured as branches**, with the floor at 99%. Statement coverage cannot see a
+branch, because both lines of an `if` execute while only one edge between them does. The gap that
+motivated the change was a documented client path no test had ever constructed, while the report
+said 100%.
 
 ## Things a review will send back
 
@@ -88,7 +89,7 @@ change was a documented client path no test had ever constructed while the repor
 - **A behaviour that differs between the client surfaces and is not written down.** Genuine
   asymmetries exist and each one is a named entry with a test in the parity matrix. An unnamed one
   is a defect, and the matrix has both an httpx-versus-requests axis and a
-  synchronous-versus-asynchronous one -- put it on whichever it belongs to.
+  synchronous-versus-asynchronous one. Put it on whichever it belongs to.
 - **A hand edit to `src/ssrfguard/_registry.py`.** It is generated; run
   `python scripts/refresh_registry.py` and read the diff, because a registry change is a change to
   what this package refuses and is reviewed as one.
@@ -98,6 +99,6 @@ change was a documented client path no test had ever constructed while the repor
 
 ## A note on scope
 
-An address this package refuses that it should permit is as much a bug as the reverse -- a guard
+An address this package refuses that it should permit is as much a bug as the reverse. A guard
 with false positives gets removed, and a removed control protects nothing. Both are worth
 reporting. Which one outranks the other, and why, is the first thing the design notes settle.

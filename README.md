@@ -7,9 +7,9 @@ Zero runtime dependencies, enforced by a test rather than by intent.
 ## Status
 
 **Alpha.** The address table, the policy layer, resolution, the connection layer and all three
-client surfaces -- `httpx`, `httpx` async and `requests` -- are built, and the central claim is demonstrated rather than
-argued: a DNS server on loopback moves a record between the validation call and the connect
-call, and the connection lands on the address that was validated.
+client surfaces (`httpx`, `httpx` async and `requests`) are built. The central claim is
+demonstrated rather than argued: a DNS server on loopback moves a record between the validation
+call and the connect call, and the connection lands on the address that was validated.
 
 The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
 without now exists, and there is no release yet.
@@ -25,7 +25,7 @@ it then discards; the connection re-resolves an unpinned hostname.
 
 ## The fix
 
-Resolve once, validate every answer, and connect to that address -- never to a name. The pinning
+Resolve once, validate every answer, and connect to that address, never to a name. The pinning
 lives at the client's connection seam, so redirects, retries and pool refills all pass through
 it, and the certificate is still verified against the *hostname*.
 
@@ -39,12 +39,12 @@ with Client(policy=Policy()) as client:
 
 `ssrfguard.httpx.AsyncClient` and `ssrfguard.requests.Session` are the same guarantee for the
 async client and for `requests`. All three are ordinary clients of their libraries, so everything
-they do -- redirects, retries, pooled connections -- goes through the same seam, and a proxy is
-refused rather than silently bypassing it.
+they do goes through the same seam: redirects, retries, pooled connections. A proxy is refused
+rather than silently bypassing it.
 
 The async client resolves off the event loop. `getaddrinfo` blocks and has no timeout, so a
 hostile nameserver that stalled a lookup on the loop would freeze every unrelated request in the
-process -- which is how a security library becomes an outage and then gets removed.
+process. That is how a security library becomes an outage and then gets removed.
 
 ## Requirements
 
