@@ -3,7 +3,7 @@
 **The shipped scope is empty, and printing that empty set every release is most of this
 lane's value.** ``[project.dependencies]`` is ``[]`` and stays ``[]``; ``zero-deps`` proves the
 built artifact agrees. What this adds is the standing check that nothing a *user* installs has
-a published advisory — which, for a package with no runtime dependencies, is the claim on the
+a published advisory -- which, for a package with no runtime dependencies, is the claim on the
 README verified rather than asserted. A release note can cite a run of this instead of citing
 an intention.
 
