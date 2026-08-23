@@ -6,11 +6,14 @@ Zero runtime dependencies, enforced by a test rather than by intent.
 
 ## Status
 
-**Alpha, and nothing is built yet.** This repository currently holds the design, the scaffolding
-and the proofs-of-mechanism. The classifier stays at `3 - Alpha` until the DNS-rebinding test
-exists — the central claim of this package is that it connects to the address it validated, and
-until a test flips a DNS record between validation and connect and asserts the pin held, that
-claim is unproven.
+**Alpha.** The address table, the policy layer, resolution, the connection layer and the
+`requests` adapter are built, and the central claim is demonstrated rather than argued: a DNS
+server on loopback moves a record between the validation call and the connect call, and the
+connection lands on the address that was validated.
+
+The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
+without now exists; the client surface it applies to is still half-built, there is no `httpx`
+client yet, and there is no release.
 
 ## The problem
 
@@ -29,11 +32,14 @@ it, and the certificate is still verified against the *hostname*.
 
 ```python
 from ssrfguard import Policy
-from ssrfguard.httpx import Client
+from ssrfguard.requests import Session
 
-with Client(policy=Policy()) as client:
-    client.get(untrusted_url)
+with Session(policy=Policy()) as session:
+    session.get(untrusted_url)
 ```
+
+`Session` is a `requests.Session`, so everything it does — redirects, retries, pooled connections
+— goes through the same seam. An `httpx` client with the same guarantee is not built yet.
 
 ## Requirements
 

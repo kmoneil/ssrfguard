@@ -144,7 +144,17 @@ LANES: tuple[Lane, ...] = (
             f"python_version >= '{DEV_PYTHON}' so the toolchain is not dragged back to the "
             "floor, which is a promise about src/ rather than about ruff"
         ),
-        command=("pytest", "-m", "not egress and not httpx_adapter and not requests_adapter"),
+        # The marker deselects the adapter rows and `--ignore-glob` stops them being *imported*,
+        # which is a different problem with the same cause: these environments deliberately
+        # have neither client installed, and pytest imports every test module before any marker
+        # decides what runs. Without the glob the lane dies at collection. It is a glob rather
+        # than a list so that adding an adapter suite does not mean editing this line.
+        command=(
+            "pytest",
+            "-m",
+            "not egress and not httpx_adapter and not requests_adapter",
+            "--ignore-glob=*_adapter.py",
+        ),
         matrix=COMPAT_PYTHONS,
     ),
     Lane(
