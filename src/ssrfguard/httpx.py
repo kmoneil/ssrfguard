@@ -35,6 +35,20 @@ relative ``Location:`` then resolves against the rewritten URL, so ``/admin`` fr
 targets the pinned address; and correct TLS becomes a rule to follow on every code path rather
 than a property of one function.
 
+**``socket_options`` land at different moments on the two clients, and that is not fixable
+here.** The synchronous path applies them to a socket it created and has not connected yet; the
+asynchronous path applies them to the socket anyio hands back, which is already connected. So an
+option whose whole effect depends on being set before connect -- ``SO_SNDBUF`` and ``SO_RCVBUF``
+window scaling, ``TCP_FASTOPEN``, ``SO_BINDTODEVICE``, ``IP_TOS`` on the SYN, ``TCP_MAXSEG`` --
+works on :class:`Client` and does nothing on :class:`AsyncClient`.
+
+Moving the asynchronous side earlier means owning socket creation, which means writing the
+stream, which means writing the ``server_hostname`` line this seam exists in order not to have.
+That trade is not close, so the asymmetry is documented and pinned by a row in
+``tests/test_adapter_parity.py`` rather than papered over. For the record, the *synchronous* side
+is the one that departs from stock httpcore, which also applies options after connect; ours is
+the more useful ordering and it is deliberate.
+
 **On importing httpx at module scope.** The promise on the front of this package is that
 ``import ssrfguard`` loads no third-party module, and it is kept by ``ssrfguard/__init__.py`` not
 importing this module. Anyone who has reached ``ssrfguard.httpx`` has httpx installed by
@@ -280,7 +294,9 @@ class SafeBackend(httpcore.NetworkBackend):
             port: The origin's port.
             timeout: Seconds to wait for the connection.
             local_address: Address to bind before connecting.
-            socket_options: ``setsockopt`` triples to apply.
+            socket_options: ``setsockopt`` triples to apply. Applied to the socket **before**
+                it is connected, which the asynchronous backend cannot do -- see the module
+                docstring.
 
         Returns:
             httpcore's own stream, wrapping a socket connected to a validated address.
@@ -402,7 +418,9 @@ class SafeTransport(httpx.HTTPTransport):
             local_address: Address to bind before connecting.
             retries: Connection retries, as httpcore counts them. A refusal by this package is
                 not retried: it is not a ``ConnectError``, which is what httpcore counts.
-            socket_options: ``setsockopt`` triples applied to every connection.
+            socket_options: ``setsockopt`` triples applied to every connection. **When**
+                they are applied differs between the synchronous and asynchronous
+                clients, and it matters for some options -- see the module docstring.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.
@@ -784,7 +802,10 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             port: The origin's port.
             timeout: Seconds to wait for the connection.
             local_address: Address to bind before connecting.
-            socket_options: ``setsockopt`` triples to apply once connected.
+            socket_options: ``setsockopt`` triples to apply. Applied **after** the connection
+                is up, because anyio owns socket creation -- so an option that only means
+                something on an unconnected socket is a no-op here and is not on the
+                synchronous client. See the module docstring.
 
         Returns:
             httpcore's own stream, wrapping a connection to a validated address.
@@ -836,7 +857,10 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             addresses: The validated answers, in the resolver's own order.
             timeout: Seconds to wait per attempt.
             local_address: Address to bind before connecting.
-            socket_options: ``setsockopt`` triples to apply once connected.
+            socket_options: ``setsockopt`` triples to apply. Applied **after** the connection
+                is up, because anyio owns socket creation -- so an option that only means
+                something on an unconnected socket is a no-op here and is not on the
+                synchronous client. See the module docstring.
 
         Returns:
             The connected stream.
@@ -964,7 +988,9 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             uds: A unix domain socket. Always refused.
             local_address: Address to bind before connecting.
             retries: Connection retries, as httpcore counts them.
-            socket_options: ``setsockopt`` triples applied to every connection.
+            socket_options: ``setsockopt`` triples applied to every connection. **When**
+                they are applied differs between the synchronous and asynchronous
+                clients, and it matters for some options -- see the module docstring.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.

@@ -17,6 +17,16 @@ inferred from a suite that quietly only tests one side:
    the merged proxy mapping by requests and can refuse it alone. ``SafeTransport`` cannot: httpx
    builds a second transport for an explicit ``proxy=`` and never consults ours, which is why
    the httpx surface needs a client and the requests surface does not.
+3. *``socket_options`` are applied before connect on ``Client`` and after connect on
+   ``AsyncClient``.* anyio owns socket creation on the asynchronous path, so there is no
+   unconnected socket to reach -- and getting one would mean writing the stream, and with it the
+   ``server_hostname`` line this package's seam exists in order not to have.
+
+**There is a third axis, and it was missing.** The rows above run once per client, which catches
+httpx drifting from requests. Nothing caught ``Client`` drifting from ``AsyncClient``, which
+share a file and a docstring but not a line of failover code -- and that gap had already produced
+three divergences by the time anyone looked. The synchronous-versus-asynchronous section at the
+end of this file is that axis.
 
 Anything else that differs is a defect, and the way to add a guarantee is to add it here.
 """
@@ -37,6 +47,7 @@ import requests
 import trustme
 import urllib3.poolmanager
 
+import ssrfguard.httpx as ssrfguard_httpx
 from ssrfguard import Address, BlockedAddressError, BlockedURLError, Policy, SSRFGuardError, connect
 from ssrfguard.httpx import AsyncSafeBackend, SafeBackend, SafeTransport
 from ssrfguard.requests import SafeAdapter
@@ -605,3 +616,59 @@ def test_both_httpx_clients_chain_the_failure_that_caused_the_refusal() -> None:
         cause = portal.call(asynchronously)
 
     assert isinstance(cause, OSError), "the async client dropped the cause the sync one keeps"
+
+
+def test_socket_options_land_before_connect_on_one_client_and_after_on_the_other(
+    monkeypatch: pytest.MonkeyPatch, server: RecordingServer
+) -> None:
+    """Asymmetry 3, and the only one that is silent.
+
+    The synchronous backend sets options on a socket it created and has not connected; the
+    asynchronous one sets them on the socket anyio hands back, already connected. So `SO_SNDBUF`
+    window scaling, `TCP_FASTOPEN`, `SO_BINDTODEVICE` and `IP_TOS` on the SYN work on `Client`
+    and do nothing at all on `AsyncClient` -- no error, no warning, across two classes documented
+    as the same guarantee.
+
+    It is not fixable without owning socket creation, which means writing the stream, which means
+    writing the `server_hostname` line this seam exists in order not to have. So it is pinned
+    rather than papered over: if anyio ever grows a pre-connect hook, this row fails and says so.
+
+    The existing tests assert only that the option *lands*. That is why this was invisible.
+    """
+    option = (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 42)
+    policy = policy_for(server.port)
+    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
+    url = f"http://pinned.test:{server.port}/"
+    seen: list[str] = []
+
+    original = socket.socket.setsockopt
+
+    def spy(self: socket.socket, *arguments: object) -> None:
+        """Record whether this socket was connected when the option was applied."""
+        if arguments[:2] == option[:2]:
+            try:
+                self.getpeername()
+            except OSError:
+                seen.append("before")
+            else:
+                seen.append("after")
+        original(self, *arguments)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket.socket, "setsockopt", spy)
+
+    with ssrfguard_httpx.Client(policy=policy, resolver=resolver, socket_options=[option]) as sync:
+        sync.get(url)
+
+    async def asynchronously() -> None:
+        async with ssrfguard_httpx.AsyncClient(
+            policy=policy, resolver=resolver, socket_options=[option]
+        ) as client:
+            await client.get(url)
+
+    with anyio.from_thread.start_blocking_portal() as portal:
+        portal.call(asynchronously)
+
+    assert seen == ["before", "after"], (
+        "socket_options are applied before connect on Client and after connect on AsyncClient; "
+        f"this run saw {seen}. If that changed, the module docstring changed with it."
+    )
