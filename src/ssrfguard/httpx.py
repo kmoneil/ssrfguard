@@ -46,6 +46,7 @@ from __future__ import annotations
 import socket
 import ssl
 from collections.abc import Iterable
+from typing import Any
 
 import httpcore
 import httpx
@@ -55,12 +56,18 @@ import httpx
 # not containing one is the entire argument for this seam.
 from httpcore._backends.sync import SyncStream
 
+# httpx's own reading of the proxy environment, so that `NO_PROXY` means exactly what it
+# means to httpx -- including `NO_PROXY=*`, which switches the environment off entirely and
+# must therefore not produce a refusal. Re-deriving it here would be a second parser to keep
+# in agreement with the first.
+from httpx._utils import get_environment_proxies
+
 from ssrfguard._connect import connect
 from ssrfguard._policy import Policy, Target, _literal_address
 from ssrfguard._resolve import Resolver, resolve
 from ssrfguard.errors import BlockedURLError, ProxyUnsupportedError
 
-__all__ = ["SafeBackend", "SafeTransport"]
+__all__ = ["Client", "SafeBackend", "SafeTransport"]
 
 #: What httpcore adds to every socket it opens, and therefore what this must add too. httpx
 #: users get Nagle disabled from the stock backend; a guarded one that quietly re-enabled it
@@ -360,3 +367,203 @@ class SafeTransport(httpx.HTTPTransport):
         """
         self.policy.check_url(str(request.url))
         return super().handle_request(request)
+
+
+#: What ``httpx.Client`` accepts that only configures the transport it would otherwise have
+#: built. **Handing these to a client that was given a transport does nothing at all**, silently,
+#: which for ``verify`` is a security-relevant no-op -- so :class:`Client` routes them to the
+#: transport it builds rather than passing them on to httpx.
+_TRANSPORT_OPTIONS = frozenset(
+    {"verify", "cert", "http1", "http2", "limits", "local_address", "retries", "socket_options"}
+)
+
+#: Meaningful to both, so both get it.
+_SHARED_OPTIONS = frozenset({"trust_env"})
+
+#: The two arguments that decide where a request is *routed*, which is the whole subject of this
+#: class. Refused unless the policy accepts that enforcement has moved.
+_ROUTING_OPTIONS = frozenset({"proxy", "mounts"})
+
+#: Everything else ``httpx.Client`` takes, forwarded unchanged.
+_CLIENT_OPTIONS = frozenset(
+    {
+        "auth",
+        "base_url",
+        "cookies",
+        "default_encoding",
+        "event_hooks",
+        "follow_redirects",
+        "headers",
+        "max_redirects",
+        "params",
+        "timeout",
+    }
+)
+
+
+def _environment_proxy(*, trust_env: bool) -> str | None:
+    """Find a proxy the environment would apply, if there is one.
+
+    Asked with httpx's own parser rather than by reading ``HTTP_PROXY`` here, so ``NO_PROXY``
+    means exactly what it means to httpx -- including ``NO_PROXY=*``, which switches the
+    environment off entirely and must not produce a refusal.
+
+    Args:
+        trust_env: Whether the environment is being consulted at all.
+
+    Returns:
+        The first proxy that would apply, or ``None``.
+    """
+    if not trust_env:
+        return None
+    for proxy in get_environment_proxies().values():
+        if proxy is not None:
+            return str(proxy)
+    return None
+
+
+class Client(httpx.Client):
+    """An httpx client that connects only to addresses it validated.
+
+    This is the entry point, and it is a client rather than a transport for one measured reason.
+    ``httpx.Client(transport=SafeTransport(...))`` does neutralise ``HTTP_PROXY`` -- httpx
+    computes ``allow_env_proxies = trust_env and transport is None`` -- but an explicit
+    ``proxy=`` or ``mounts=`` builds a *separate* transport that ``_transport_for_url`` prefers,
+    and the request never reaches the guarded one. A class that owns its own construction is the
+    only place that can be refused::
+
+        >>> from ssrfguard import Policy
+        >>> from ssrfguard.httpx import Client
+        >>> with Client(policy=Policy()) as client:      # doctest: +SKIP
+        ...     client.get(untrusted_url)
+
+    It also closes a quieter trap. ``verify``, ``cert``, ``http1``, ``http2`` and ``limits``
+    configure the transport httpx *would have built*, so passing them to a client that was given
+    a transport does nothing -- silently, and for ``verify`` that means a caller believing they
+    configured certificate verification when they did not. They are routed to the transport here.
+
+    Attributes:
+        policy: What this client is willing to reach.
+    """
+
+    def __init__(
+        self,
+        *,
+        policy: Policy | None = None,
+        resolver: Resolver | None = None,
+        transport: SafeTransport | None = None,
+        **options: object,
+    ) -> None:
+        """Build the client.
+
+        Args:
+            policy: What this client is willing to reach. Required unless ``transport`` is given,
+                in which case the transport's policy is used.
+            resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
+                their own.
+            transport: An already-built :class:`SafeTransport`, for a caller who configured one.
+            **options: Everything ``httpx.Client`` accepts, plus the transport's own
+                ``local_address``, ``retries`` and ``socket_options``. Each is routed to
+                whichever of the two it actually configures.
+
+        Raises:
+            TypeError: If the arguments cannot be reconciled -- neither a policy nor a transport,
+                both, a transport that is not a guarded one, or an option neither httpx nor this
+                package knows. An unknown option is refused rather than dropped, because httpx
+                growing a new way to route a request is a decision for this class rather than
+                something to inherit.
+            ProxyUnsupportedError: If a proxy applies and the policy does not permit one.
+        """
+        policy = self._resolve_policy(policy, resolver, transport)
+        self.policy = policy
+        transport_options, client_options = self._split(options)
+
+        trust_env = bool(client_options.get("trust_env", True))
+        configured = self._configured_proxy(client_options, trust_env=trust_env)
+        if configured is not None and not policy.allow_proxy:
+            raise ProxyUnsupportedError(configured)
+
+        if transport is None:
+            transport = SafeTransport(policy=policy, resolver=resolver, **transport_options)
+        super().__init__(transport=transport, **client_options)
+
+    @staticmethod
+    def _resolve_policy(
+        policy: Policy | None, resolver: Resolver | None, transport: SafeTransport | None
+    ) -> Policy:
+        """Work out which policy is in force, refusing every ambiguous combination.
+
+        Args:
+            policy: The policy argument, if given.
+            resolver: The resolver argument, if given.
+            transport: The transport argument, if given.
+
+        Returns:
+            The policy to enforce.
+
+        Raises:
+            TypeError: If the arguments do not name exactly one policy.
+        """
+        if transport is None:
+            if policy is None:
+                raise TypeError("Client needs a policy, or a transport that already has one")
+            return policy
+        if not isinstance(transport, SafeTransport):
+            raise TypeError(
+                f"transport is a {type(transport).__name__}, which does not pin anything; "
+                f"this class exists to make that impossible to pass in by accident"
+            )
+        if policy is not None or resolver is not None:
+            raise TypeError(
+                "transport already carries a policy and a resolver, so passing either "
+                "alongside it would leave two answers to one question"
+            )
+        return transport.policy
+
+    @staticmethod
+    def _split(options: dict[str, object]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Route each option to the thing it actually configures.
+
+        Args:
+            options: Everything the caller passed.
+
+        Returns:
+            A pair of (transport options, client options).
+
+        Raises:
+            TypeError: If an option belongs to neither.
+        """
+        unknown = set(options) - _TRANSPORT_OPTIONS - _SHARED_OPTIONS - _ROUTING_OPTIONS
+        unknown -= _CLIENT_OPTIONS
+        if unknown:
+            named = ", ".join(sorted(unknown))
+            raise TypeError(
+                f"Client does not know what to do with {named}; if httpx has grown an argument "
+                f"since this was written, it needs a decision here rather than to be passed "
+                f"through, because the ones that route a request are the whole subject"
+            )
+        transport_options: dict[str, Any] = {
+            name: value
+            for name, value in options.items()
+            if name in _TRANSPORT_OPTIONS or name in _SHARED_OPTIONS
+        }
+        client_options: dict[str, Any] = {
+            name: value for name, value in options.items() if name not in _TRANSPORT_OPTIONS
+        }
+        return transport_options, client_options
+
+    @staticmethod
+    def _configured_proxy(client_options: dict[str, Any], *, trust_env: bool) -> str | None:
+        """Find the proxy that would carry this client's requests, if any.
+
+        Args:
+            client_options: The options destined for ``httpx.Client``.
+            trust_env: Whether the environment is being consulted.
+
+        Returns:
+            A proxy, or ``None``.
+        """
+        explicit = client_options.get("proxy") or client_options.get("mounts")
+        if explicit:
+            return str(explicit)
+        return _environment_proxy(trust_env=trust_env)
