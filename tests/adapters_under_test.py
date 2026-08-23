@@ -1,4 +1,4 @@
-"""The adapters, behind one interface, so a shared matrix can run against both.
+"""The client surfaces, behind one interface, so a shared matrix can run against all three.
 
 This exists because the two seams share no code. httpx is pinned at ``httpcore``'s network
 backend and requests at ``urllib3``'s ``_new_conn``; a behaviour fixed in one is not fixed in the

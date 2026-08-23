@@ -1,6 +1,7 @@
 """A DNS server on loopback whose answers change between queries.
 
-This is the fixture D-5 is about. Everything else in this suite drives resolution with a Python
+This is the fixture the central claim rests on. Everything else in this suite drives resolution
+with a Python
 callable standing in for the resolver, which is right for testing what the policy decides -- and
 structurally incapable of demonstrating the one claim on the front of this package's README,
 because a stand-in cannot change its mind between two calls that a real attacker's nameserver

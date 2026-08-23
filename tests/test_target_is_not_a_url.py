@@ -1,9 +1,9 @@
 """`Target` must be awkward to misuse, and this file is what keeps it awkward.
 
-D-2 exists because every SSRF advisory of 2026 describes a validator that handed back something
-an HTTP client would accept. The defence is a return type that cannot be used that way -- which
-is a property of the *shape* of the class, so it decays the moment somebody adds a convenience
-method. These tests are the fence around that.
+This type exists because every SSRF advisory of 2026 describes a validator that handed back
+something an HTTP client would accept. The defence is a return type that cannot be used that
+way -- which is a property of the *shape* of the class, so it decays the moment somebody adds a
+convenience method. These tests are the fence around that.
 """
 
 from __future__ import annotations
@@ -24,6 +24,22 @@ def test_str_renders_a_debug_form_that_is_not_a_url() -> None:
     assert "://" not in rendered, "a renderable URL is the thing this type exists not to be"
 
 
+def test_repr_renders_the_same_debug_form_as_str() -> None:
+    """The rendering that reaches a log line is `repr`, not `str`, so it is the one that counts.
+
+    A frozen dataclass generates a `repr` that spells every field out, and that is what a
+    traceback, a REPL and `print([target])` show. Leaving it in place meant the careful
+    rendering above was the one form nobody actually saw -- and the package docstring's own
+    example claimed otherwise, which is how this was found.
+    """
+    target = POLICY.check_url("https://example.com/a/b?c=d#e")
+    assert repr(target) == str(target) == "<Target https host=example.com port=443>"
+    assert "://" not in repr(target)
+    assert repr([target]) == "[<Target https host=example.com port=443>]", (
+        "a container renders its members with repr, which is most of why this matters"
+    )
+
+
 def test_a_target_carries_no_path_query_or_fragment() -> None:
     """A Target is an origin, not a request. Dropping these is deliberate, not an oversight."""
     target = POLICY.check_url("https://example.com/secret/path?token=abc#frag")
@@ -42,7 +58,7 @@ def test_a_target_offers_no_way_to_become_a_url(attribute: str) -> None:
     target = POLICY.check_url("https://example.com/")
     assert not hasattr(target, attribute), (
         f"Target grew {attribute!r}; that is the affordance this type exists to withhold, and "
-        f"the next line of code after it is the vulnerability D-2 is about"
+        f"the next line of code after it is the vulnerability this type exists to prevent"
     )
 
 

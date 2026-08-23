@@ -1,6 +1,7 @@
 """What the table decides, and where it deliberately disagrees with the standard library.
 
-The corpus below is the regression fence for D-1. Every entry was measured rather than assumed,
+The corpus below is the regression fence for the table itself. Every entry was measured rather
+than assumed,
 and the ones marked as disagreements are the reason this package ships a table at all.
 """
 

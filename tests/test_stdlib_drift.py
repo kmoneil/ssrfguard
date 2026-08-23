@@ -110,7 +110,7 @@ def test_the_corpus_covers_every_disagreement() -> None:
 
 
 def test_the_stdlib_is_actually_wrong_about_the_headline_case() -> None:
-    """The one example the README and the card both lead with, asserted directly."""
+    """The example the README leads with, asserted directly rather than quoted."""
     nat64 = ipaddress.ip_address("64:ff9b::7f00:1")
     assert nat64.is_global is True
     assert nat64.is_private is False

@@ -92,6 +92,30 @@ def test_no_committed_file_cites_the_uncommitted_design_document(tracked: list[s
     )
 
 
+def test_no_committed_file_cites_a_design_card(tracked: list[str]) -> None:
+    """The same defect as the two above, spelled in the form that got past both of them.
+
+    The planning document numbers its decisions, so "D-17, decided:" and "the card's one test"
+    are citations of an uncommitted file that name neither a path nor the word `DESIGN`. They
+    read as authoritative to someone who has the document and as noise to everyone who clones
+    the repository, which is the whole population this file is written for.
+    """
+    pattern = re.compile(r"\bD-\d+\b|\bthe cards?(?:'s)?\b", re.IGNORECASE)
+    offenders: list[str] = []
+    for name in tracked:
+        if name in EXEMPT or not name.endswith(PROSE):
+            continue
+        for number, line in enumerate(
+            (REPO_ROOT / name).read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if pattern.search(line):
+                offenders.append(f"{name}:{number}: {line.strip()}")
+    assert not offenders, (
+        "committed files cite a design card by number or nickname; the reader cannot open it, "
+        "so state the reason in place:\n" + "\n".join(offenders)
+    )
+
+
 def test_the_ignored_directories_really_are_ignored() -> None:
     """If one of these stopped being ignored, the rule above would be guarding nothing."""
     for directory in UNREACHABLE:

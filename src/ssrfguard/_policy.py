@@ -68,8 +68,11 @@ class Target:
     to, and a value that could be handed back to an HTTP client is precisely the shape that every
     SSRF advisory in this package's README describes.
 
-    :meth:`__str__` renders a debug form rather than a URL for the same reason. There is no
-    ``geturl``, no ``__fspath__`` and no ``url`` attribute, and there will not be.
+    :meth:`__str__` renders a debug form rather than a URL for the same reason, and
+    :meth:`__repr__` renders the same one -- a dataclass's generated repr is what actually
+    reaches logs and tracebacks, so leaving it in place would have meant the careful rendering
+    was the one nobody ever saw. There is no ``geturl``, no ``__fspath__`` and no ``url``
+    attribute, and there will not be.
 
     Attributes:
         scheme: Lowercased scheme, guaranteed to be in the policy's allowed set.
@@ -97,6 +100,20 @@ class Target:
         """
         literal = " (literal address)" if self.address is not None else ""
         return f"<Target {self.scheme} host={self.host} port={self.port}{literal}>"
+
+    def __repr__(self) -> str:
+        """Render the same debug form :meth:`__str__` does.
+
+        The dataclass default spells every field out, and **that** is the rendering that reaches
+        a log line, a traceback, a REPL and any container a target is printed inside -- so
+        leaving it in place meant the form this class was designed to show was the one form
+        nobody saw. Defining it here rather than passing ``repr=False`` keeps one rendering
+        instead of two that have to be kept in agreement.
+
+        Returns:
+            Something a reader can identify and an HTTP client will reject.
+        """
+        return str(self)
 
     @property
     def is_literal_address(self) -> bool:

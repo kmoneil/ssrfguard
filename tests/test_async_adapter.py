@@ -100,7 +100,8 @@ class Stalling(Resolver):
 
 @pytest.mark.anyio
 async def test_a_stalled_lookup_does_not_stall_the_loop(server: RecordingServer) -> None:
-    """The card's one test: this is what separates having thought about it from having done it.
+    """Resolving off the loop, measured -- which is what separates having thought about it from
+    having done it.
 
     The counter is the whole assertion. If resolution ran on the loop, the counting task would
     not be scheduled at all while the lookup blocked and the count would be zero. The bound is

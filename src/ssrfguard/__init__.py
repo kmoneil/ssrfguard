@@ -4,7 +4,10 @@ Every SSRF guard in Python validates a hostname and then hands the URL to an HTT
 resolves DNS a second time. The attacker moves the record in between. This package resolves
 once, validates every answer, and connects to the address it validated -- never to a name.
 
-The address table, the policy layer, resolution and connection are built so far::
+The address table, the policy layer, resolution, the connection layer and all three client
+surfaces -- :class:`ssrfguard.httpx.Client`, :class:`ssrfguard.httpx.AsyncClient` and
+:class:`ssrfguard.requests.Session` -- are built. Start with a client; the pieces below are
+what one is assembled from::
 
     >>> from ssrfguard import Policy
     >>> policy = Policy()
