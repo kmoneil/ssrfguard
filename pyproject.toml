@@ -170,6 +170,12 @@ dev = [
   # anything. The alternative is committing a key pair, which expires, and which puts a private
   # key in the repository of a security library.
   "trustme>=1.2",
+  # The HTTP/2 protocol implementation, test-only. It is here for one assertion that cannot be
+  # made without it: `httpcore.HTTP2Connection` refuses to be constructed when `h2` is absent,
+  # and whether *that* class hands a connection to a second authority is the whole of the
+  # connection-coalescing question. Asserting the other connection classes and reasoning about
+  # this one is what this repository does not do.
+  "h2>=4.1",
 ]
 
 # **The lock is resolved for the developer's interpreter, not for the 3.9 floor.**
