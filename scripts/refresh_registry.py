@@ -7,7 +7,7 @@ build whose answer depends on the day it ran.
     python scripts/refresh_registry.py && git diff src/ssrfguard/_registry.py
 
 **Read the diff.** A registry change is a change to what this package refuses, so it is reviewed
-like any other change to a security control -- and the drift test in `tests/test_address_table.py`
+like any other change to a security control, and the drift test in `tests/test_address_table.py`
 will fail on anything that also moves our disagreement with the standard library.
 
 ## What the transformation does
@@ -20,8 +20,8 @@ which is a case where the registry answers a different question than we are aski
   has any business reaching.
 * **`N/A`** marks a prefix whose reachability depends on what is embedded in it. Those become
   ``TRANSLATED``: decode the embedded IPv4 address and ask the question again about that.
-* **`64:ff9b::/96` is `True` and still becomes `TRANSLATED`.** IANA is right -- the prefix is
-  globally routable -- but the question we are asking is where the packet ends up, and for a
+* **`64:ff9b::/96` is `True` and still becomes `TRANSLATED`.** IANA is right that the prefix is
+  globally routable, but the question we are asking is where the packet ends up, and for a
   translation prefix that is the embedded address. This is the single most important line in
   this file; see `ADDITIONS` for the rest.
 
@@ -49,7 +49,7 @@ SOURCES = {
 }
 
 # Prefixes that carry an IPv4 destination inside them. The registry cannot express "ask again
-# about what is inside this", so the decision is ours -- and each of these departs from IANA for
+# about what is inside this", so the decision is ours, and each of these departs from IANA for
 # a *different* reason, which is why the notes are per-prefix rather than one shared sentence.
 TRANSLATED_PREFIXES: dict[str, str] = {
     "::ffff:0:0/96": (
@@ -59,7 +59,7 @@ TRANSLATED_PREFIXES: dict[str, str] = {
         "than the registry here, which is unusual and worth the note."
     ),
     "64:ff9b::/96": (
-        "IANA marks this globally reachable and is right about routing -- the prefix is public. "
+        "IANA marks this globally reachable and is right about routing: the prefix is public. "
         "We decode anyway, because the question here is not whether the address is routable but "
         "where the packet ends up, and 64:ff9b::7f00:1 ends up at 127.0.0.1. This is the single "
         "most important departure in the table; a guard that trusts is_global permits it."
@@ -70,9 +70,9 @@ TRANSLATED_PREFIXES: dict[str, str] = {
         "destination in bits 16 to 48, so 2002:7f00:1:: reaches 127.0.0.1."
     ),
     "2001::/32": (
-        "IANA answers N/A for the same reason as 6to4. Teredo carries two IPv4 addresses -- the "
+        "IANA answers N/A for the same reason as 6to4. Teredo carries two IPv4 addresses: the "
         "server in bits 32 to 64 and the client, bit-inverted, in the low 32 (RFC 4380 section "
-        "4) -- and either being internal is disqualifying, so both are decoded."
+        "4). Either being internal is disqualifying, so both are decoded."
     ),
 }
 
@@ -85,7 +85,8 @@ ADDITIONS: tuple[tuple[str, str, str, str, str], ...] = (
         "RFC4291",
         "TRANSLATED",
         "Deprecated by RFC 4291 section 2.5.5.1 and removed from the registry, so a table built "
-        "from IANA alone permits it -- measured. It embeds an arbitrary IPv4 address in its low "
+        "from IANA alone permits it, measured rather than assumed. It embeds an arbitrary IPv4 "
+        "address in its low "
         "32 bits, so ::7f00:1 reaches 127.0.0.1. The more specific ::1/128 and ::/128 entries "
         "win on longest-prefix match, so loopback and unspecified keep their own names.",
     ),
@@ -95,8 +96,8 @@ ADDITIONS: tuple[tuple[str, str, str, str, str], ...] = (
         "RFC5771",
         "DENIED",
         "Multicast lives in its own IANA registry, so the special-purpose table does not carry "
-        "it and a table built from that alone permits 224.0.0.1 and 239.255.255.250 -- "
-        "measured. A fetcher has no reason to address a multicast group.",
+        "it and a table built from that alone permits 224.0.0.1 and 239.255.255.250, measured "
+        "rather than assumed. A fetcher has no reason to address a multicast group.",
     ),
     (
         "ff00::/8",
@@ -111,7 +112,7 @@ ADDITIONS: tuple[tuple[str, str, str, str, str], ...] = (
         "Site-Local (deprecated)",
         "RFC3879",
         "DENIED",
-        "Deprecated by RFC 3879 and removed from the registry, so IANA alone permits it -- and "
+        "Deprecated by RFC 3879 and removed from the registry, so IANA alone permits it, and "
         "the standard library reports is_global=True. It is an internal-addressing prefix by "
         "construction.",
     ),
@@ -135,18 +136,18 @@ METADATA: tuple[tuple[str, str, str], ...] = (
 
 HEADER = '''"""The address table, transcribed from the IANA special-purpose registries.
 
-**Generated. Do not edit by hand** -- run `python scripts/refresh_registry.py`, which carries the
+**Generated. Do not edit by hand.** Run `python scripts/refresh_registry.py`, which carries the
 provenance, the transformation rules and the justification for every entry IANA does not supply.
 
 The point of this file is that it is *ours*. `ipaddress.is_private` and `ipaddress.is_global` are
 both wrong for this question, in opposite directions, and they are wrong differently on different
-patch releases of CPython -- so a guard built on them answers a question that changes underneath
+patch releases of CPython, so a guard built on them answers a question that changes underneath
 it. Measured examples, identical on 3.10, 3.11 and 3.13:
 
-    64:ff9b::7f00:1   is_private=False  is_global=True   -- 127.0.0.1 behind a NAT64 gateway
-    ff02::1           is_private=False  is_global=True   -- IPv6 all-nodes multicast
-    5f00::1           is_private=False  is_global=True   -- IANA says not globally reachable
-    100.64.0.1        is_private=False  is_global=False  -- CGNAT, which neither predicate denies
+    64:ff9b::7f00:1   is_private=False  is_global=True    # 127.0.0.1 behind a NAT64 gateway
+    ff02::1           is_private=False  is_global=True    # IPv6 all-nodes multicast
+    5f00::1           is_private=False  is_global=True    # IANA says not globally reachable
+    100.64.0.1        is_private=False  is_global=False   # CGNAT, which neither predicate denies
 
 The third line is not a CPython bug: IANA genuinely marks `64:ff9b::/96` globally reachable, and
 it is. `is_global` answers *is this address globally routable*; the question here is *where does
@@ -172,8 +173,8 @@ class Reach(enum.Enum):
     Attributes:
         DENIED: Refuse any address in this block.
         PERMITTED: Allow, overriding any enclosing denied block. IANA marks a handful of
-            special-purpose blocks globally reachable -- public anycast services, AS112, AMT --
-            and refusing those would be a denial with no security benefit behind it.
+            special-purpose blocks globally reachable, such as public anycast services, AS112
+            and AMT, and refusing those would be a denial with no security benefit behind it.
         TRANSLATED: The block carries an IPv4 destination inside it. Decode the embedded address
             and ask the question again about that, rather than answering about the wrapper.
     """
@@ -218,7 +219,7 @@ def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = "") -> Block:
     return Block(network=ip_network(cidr), name=name, rfc=rfc, reach=reach, note=note)
 
 
-#: Every block this package knows about, in no particular order -- lookup is by longest prefix,
+#: Every block this package knows about, in no particular order. Lookup is by longest prefix,
 #: so ordering here carries no meaning and must not be relied on.
 TABLE: tuple[Block, ...] = (
 '''
@@ -282,7 +283,7 @@ def _rows(version: int) -> list[tuple[str, str, str, str, str]]:
                 raise SystemExit(
                     f"IPv{version} registry row {row['Name']!r} has an address block this "
                     f"generator cannot parse: {cidr!r} ({bad}). Read the registry before "
-                    f"widening this -- the block is going into a table that decides what "
+                    f"widening this, because the block is going into a table that decides what "
                     f"gets refused."
                 ) from bad
             reach, note = _verdict(row, cidr)
@@ -303,7 +304,7 @@ def _emit(entries: list[tuple[str, str, str, str, str]]) -> str:
     for cidr, name, rfc, reach, note in entries:
         # `repr` rather than an f-string wrapping the value in quote characters. Three of these
         # come from a CSV fetched over the network and are being written into Python source that
-        # `import ssrfguard` executes -- so a quote in one of them closed the literal and the
+        # `import ssrfguard` executes, so a quote in one of them closed the literal and the
         # rest of the cell became code. `name` happened to be defended (its quotes are stripped
         # upstream) and `cidr` was not, which is the shape of every bug this package is about:
         # the field nobody thought of as input.
