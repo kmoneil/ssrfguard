@@ -11,7 +11,15 @@ from ipaddress import ip_network
 
 import pytest
 
-from ssrfguard import BlockedAddressError, BlockedURLError, Policy
+from ssrfguard import (
+    DEFAULT_DENIED,
+    AddressTable,
+    BlockedAddressError,
+    BlockedURLError,
+    Policy,
+    Reach,
+)
+from ssrfguard._registry import TABLE
 
 
 def test_the_defaults_are_the_ones_documented() -> None:
@@ -153,3 +161,93 @@ def test_a_name_the_resolver_could_not_encode_is_refused_with_the_codec_error() 
     with pytest.raises(BlockedURLError, match="is not a usable name") as caught:
         policy.check_url(f"http://{too_long}/")
     assert "too long" in caught.value.reason
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "64:ff9b::/96",  # NAT64, the most important row in the table
+        "64:ff9b::/104",  # a slice of it is no better
+        "2002::/16",  # 6to4
+        "2001::/32",  # Teredo
+        "::ffff:0:0/96",  # IPv4-mapped
+        "::ffff:7f00:1/128",  # and a single mapped address, which no other row decides
+        "::/96",  # IPv4-compatible, deprecated
+    ],
+)
+def test_allowing_a_translation_prefix_is_refused_at_construction(entry: str) -> None:
+    """The allowlist is consulted before the table gets to decode, so this would be a bypass.
+
+    `check_address` returns on the first allowed-network hit. An entry inside a wrapper therefore
+    permits every IPv4 destination embedded in it, undecoded -- `64:ff9b::a9fe:a9fe` is the
+    metadata endpoint behind a NAT64 gateway, and it would have been permitted by one line of
+    configuration that reads as "let NAT64 through".
+    """
+    with pytest.raises(ValueError, match="carries an IPv4 destination"):
+        Policy(allowed_networks=(entry,))
+
+
+def test_the_refusal_names_the_entry_the_block_and_a_way_forward() -> None:
+    """A refusal a caller cannot act on gets configured around, which protects nothing."""
+    with pytest.raises(ValueError) as refusal:
+        Policy(allowed_networks=("64:ff9b::/96",))
+
+    message = str(refusal.value)
+    assert "64:ff9b::/96" in message
+    assert "IPv4-IPv6 Translation" in message
+    assert "allow the embedded IPv4 range instead" in message
+
+
+def test_a_deliberately_wide_entry_that_merely_contains_one_is_honoured() -> None:
+    """`subnet_of`, not `overlaps`, and the difference is the judgement.
+
+    An entry *inside* a wrapper is somebody naming a prefix whose contents they have not thought
+    about. An entry *containing* one is somebody painting with a roller -- and refusing those
+    would break the off switch the test above this asserts, which exists because a control with
+    no off switch gets replaced by no control at all.
+    """
+    # `::/0` contains every wrapper. `2000::/3` is global unicast, which contains 6to4 and Teredo
+    # but *not* NAT64 -- `64:ff9b::` begins `000`, not `001` -- so it is checked against an
+    # address it actually covers rather than against one it does not.
+    assert Policy(allowed_networks=("::/0",)).permits_address("64:ff9b::7f00:1")
+    assert Policy(allowed_networks=("2000::/3",)).permits_address("2002:7f00:1::")
+    assert Policy(allowed_networks=("2000::/3",)).permits_address("2001:0:7f00:1::")
+    assert DEFAULT_DENIED.classify("2002:7f00:1::").blocked  # denied without the entry
+
+
+@pytest.mark.parametrize(
+    ("entry", "decided_by"),
+    [
+        ("::1/128", "its own loopback row"),
+        ("::/128", "its own unspecified row"),
+        ("2001:1::1/128", "the Port Control Protocol anycast row, which is PERMITTED"),
+        ("2001:1::2/128", "the TURN anycast row, which is PERMITTED"),
+    ],
+)
+def test_an_entry_a_more_specific_row_decides_is_not_refused(entry: str, decided_by: str) -> None:
+    """The check has to use the table's own longest-prefix rule or it produces wrong denies.
+
+    `::1/128` sits inside `::/96`, the deprecated IPv4-compatible wrapper -- and allowing IPv6
+    loopback is an ordinary thing to do. The wrapper never decides it, because `::1/128` has its
+    own row. An earlier version of this check asked "does the entry touch a translated block",
+    which refused every one of these; the suite caught it on `::1/128`, which the connection
+    tests use.
+
+    Args:
+        entry: The allowed network.
+        decided_by: Which row actually decides it, for the failure message.
+    """
+    assert Policy(allowed_networks=(entry,)).allowed_networks, decided_by
+
+
+def test_a_custom_table_with_no_translated_blocks_accepts_anything() -> None:
+    """The check reads the policy's own table rather than the shipped one.
+
+    A caller who built a table without translation decoding has no wrapper to be surprised by,
+    and refusing them an entry on the strength of a block their table does not carry would be
+    this package enforcing a rule it is not applying.
+    """
+    plain = AddressTable(tuple(b for b in TABLE if b.reach is not Reach.TRANSLATED))
+    policy = Policy(denied_networks=plain, allowed_networks=("64:ff9b::/96",))
+
+    assert policy.permits_address("64:ff9b::7f00:1")

@@ -46,6 +46,15 @@ All notable changes to this project are documented here. The format follows
   the URL that was parsed.
 - `Policy.check_address()` and `permits_address()`, where `allowed_networks` beats the denied
   table so an internal-services fetcher can reach its internal services.
+- **An `allowed_networks` entry that a translation prefix would decide is refused at
+  construction.** The allowlist is consulted before the table gets to decode, so
+  `allowed_networks=("64:ff9b::/96",)` — which reads as "let NAT64 through" — permitted
+  `64:ff9b::7f00:1` and `64:ff9b::a9fe:a9fe`, loopback and the metadata endpoint behind a NAT64
+  gateway, with the most important row in the shipped table silently switched off. The test is
+  the table's own longest-prefix rule rather than mere overlap, so `::1/128` is still allowed:
+  it sits inside the deprecated `::/96` wrapper but has its own row, and refusing IPv6 loopback
+  would be a wrong deny. A deliberately wide entry that merely *contains* a wrapper — `::/0` —
+  is still honoured, because a control with no off switch gets replaced by no control at all.
 - **Resolution.** `ssrfguard.resolve()` performs exactly one lookup and validates every answer,
   returning `Address` objects that carry the `sockaddr` `getaddrinfo` produced — four elements
   for IPv6, so the flow label and scope identifier survive to the connection.
