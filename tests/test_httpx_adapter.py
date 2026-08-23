@@ -19,6 +19,7 @@ never entered, asserted by making the function it would have used raise.
 
 from __future__ import annotations
 
+import inspect
 import socket
 import ssl
 from collections.abc import Iterator
@@ -31,7 +32,15 @@ import trustme
 from httpcore._backends.sync import SyncStream
 
 from ssrfguard import BlockedAddressError, BlockedURLError, Policy, ProxyUnsupportedError
-from ssrfguard.httpx import SafeBackend, SafeTransport
+from ssrfguard.httpx import (
+    _CLIENT_OPTIONS,
+    _ROUTING_OPTIONS,
+    _SHARED_OPTIONS,
+    _TRANSPORT_OPTIONS,
+    Client,
+    SafeBackend,
+    SafeTransport,
+)
 
 from .loopback_http import RecordingServer
 from .stub_resolver import Resolver
@@ -530,3 +539,166 @@ def test_an_environment_proxy_does_not_reach_a_client_given_a_transport(
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
     with client_for(Policy()) as client:
         assert client._mounts == {}, "an environment proxy was mounted despite the transport"
+
+
+# ---------------------------------------------------------------------------------------------
+# The client, which exists because a transport is not one
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_request_through_the_client_reaches_the_validated_address(
+    server: RecordingServer,
+) -> None:
+    """The documented entry point does what the transport does, with the routing closed."""
+    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
+    with Client(policy=policy_for(server.port), resolver=resolver) as client:
+        response = client.get(f"http://pinned.test:{server.port}/asked")
+
+    assert response.status_code == 200
+    assert [r.path for r in server.received] == ["/asked"]
+
+
+def test_an_explicit_proxy_on_the_client_is_refused() -> None:
+    """The gap this class exists to close: httpx prefers a proxy transport over the one given."""
+    with pytest.raises(ProxyUnsupportedError) as refusal:
+        Client(policy=Policy(), proxy="http://127.0.0.1:9")
+
+    assert refusal.value.proxy == "http://127.0.0.1:9"
+
+
+def test_mounts_on_the_client_are_refused() -> None:
+    """``mounts=`` is the same gap spelled differently, and is refused the same way."""
+    with pytest.raises(ProxyUnsupportedError):
+        Client(policy=Policy(), mounts={"all://": httpx.HTTPTransport()})
+
+
+def test_a_proxy_from_the_environment_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Handing httpx a transport already neutralises this. Neutralising is not the same as
+    refusing, and quietly not using the proxy an operator configured is its own surprise --
+    it can put traffic outside an egress control that was assumed to be carrying it."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+
+    with pytest.raises(ProxyUnsupportedError) as refusal:
+        Client(policy=Policy())
+
+    assert "127.0.0.1:9" in refusal.value.proxy
+
+
+def test_an_environment_that_proxies_nothing_is_not_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``NO_PROXY=*`` switches the environment off, and a refusal there would be a false one.
+
+    Decided with httpx's own parser rather than by reading the variables here, so the answer
+    cannot drift from the answer httpx would have given.
+    """
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("NO_PROXY", "*")
+
+    with Client(policy=Policy()) as client:
+        assert isinstance(client._transport, SafeTransport)
+
+
+def test_trust_env_off_ignores_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """And so does saying so directly."""
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+
+    with Client(policy=Policy(), trust_env=False) as client:
+        assert isinstance(client._transport, SafeTransport)
+
+
+def test_allow_proxy_lets_an_explicit_proxy_through(server: RecordingServer) -> None:
+    """With ``allow_proxy``, the proxy is honoured and those requests are not pinned.
+
+    Asserted through what httpx will actually route with, because that is where the decision
+    lives: a mount matching the request wins over the transport the client was given.
+    """
+    policy = policy_for(server.port, allow_proxy=True)
+    with Client(policy=policy, proxy="http://127.0.0.1:9") as client:
+        routed = client._transport_for_url(httpx.URL(f"http://pinned.test:{server.port}/"))
+        assert not isinstance(routed, SafeTransport)
+
+
+def test_the_transport_alone_is_bypassed_by_an_explicit_proxy(server: RecordingServer) -> None:
+    """The measurement this class is the answer to, asserted rather than described.
+
+    This is not a test of a bug that will be fixed. It documents that assembling a client by
+    hand around :class:`SafeTransport` leaves a way round it, so that the limitation in that
+    class's docstring is checked rather than believed.
+    """
+    transport = SafeTransport(policy=policy_for(server.port))
+    with httpx.Client(transport=transport, proxy="http://127.0.0.1:9") as client:
+        routed = client._transport_for_url(httpx.URL(f"http://pinned.test:{server.port}/"))
+
+    assert routed is not transport, "the bypass this class exists for has closed on its own"
+    assert isinstance(routed, httpx.HTTPTransport)
+
+
+def test_verify_reaches_the_transport_rather_than_being_ignored(
+    tls_server: RecordingServer, trusted: ssl.SSLContext
+) -> None:
+    """``verify`` on an httpx client that was given a transport configures nothing at all.
+
+    Silently. For an argument whose whole job is certificate verification, a caller believing
+    they set it when they did not is the worst possible no-op, so this class routes it to the
+    transport -- and this asserts the routing by making a handshake that only succeeds if it
+    arrived.
+    """
+    resolver = Resolver(**{"right.test": "127.0.0.1"})
+    with Client(policy=policy_for(tls_server.port), resolver=resolver, verify=trusted) as client:
+        response = client.get(f"https://right.test:{tls_server.port}/tls")
+
+    assert response.status_code == 200
+    assert tls_server.received[-1].sni == "right.test"
+
+
+def test_an_option_neither_side_knows_is_refused() -> None:
+    """Refused rather than dropped: httpx growing an argument is a decision, not an inheritance."""
+    with pytest.raises(TypeError) as refusal:
+        Client(policy=Policy(), some_new_httpx_knob=True)
+
+    assert "some_new_httpx_knob" in str(refusal.value)
+
+
+def test_a_transport_that_does_not_pin_is_refused() -> None:
+    """The one argument that could quietly replace the guard with nothing."""
+    with pytest.raises(TypeError) as refusal:
+        Client(transport=httpx.HTTPTransport())  # type: ignore[arg-type]
+
+    assert "does not pin" in str(refusal.value)
+
+
+def test_a_prebuilt_transport_carries_its_own_policy(server: RecordingServer) -> None:
+    """A caller who configured a transport does not restate its policy, and cannot contradict it."""
+    transport = SafeTransport(policy=policy_for(server.port))
+    with Client(transport=transport) as client:
+        assert client.policy is transport.policy
+
+    with pytest.raises(TypeError) as refusal:
+        Client(policy=Policy(), transport=SafeTransport(policy=Policy()))
+    assert "two answers to one question" in str(refusal.value)
+
+
+def test_the_client_needs_a_policy_or_a_transport() -> None:
+    """Neither is not a default, because there is no safe policy to assume."""
+    with pytest.raises(TypeError) as refusal:
+        Client()
+
+    assert "needs a policy" in str(refusal.value)
+
+
+def test_httpx_has_not_grown_an_argument_this_class_has_not_considered() -> None:
+    """The drift fence. A new ``httpx.Client`` argument must be routed deliberately.
+
+    The ones that decide *where a request goes* are the entire subject of this class, so
+    inheriting a new one by passing it through unexamined is how the guard quietly stops being
+    in the path. Failing here is not a bug in httpx; it is a decision arriving.
+    """
+    declared = set(inspect.signature(httpx.Client.__init__).parameters) - {"self"}
+    considered = (
+        _TRANSPORT_OPTIONS | _SHARED_OPTIONS | _ROUTING_OPTIONS | _CLIENT_OPTIONS | {"transport"}
+    )
+    assert declared <= considered, (
+        f"httpx.Client grew {sorted(declared - considered)}; route it deliberately -- if it "
+        f"decides where a request goes, it belongs in the refused set"
+    )

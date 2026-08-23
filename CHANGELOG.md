@@ -91,6 +91,22 @@ All notable changes to this project are documented here. The format follows
 - `connect()` now accepts every shape of `setsockopt` argument its clients can express,
   including httpcore's four-element form, and applies each unchanged rather than taking it
   apart and putting it back together.
+- **`ssrfguard.httpx.Client`, the entry point, because a transport is not a client.**
+  `httpx.Client(transport=…)` already ignores `HTTP_PROXY` — httpx computes
+  `allow_env_proxies = trust_env and transport is None` — but an explicit `proxy=` or `mounts=`
+  builds a *separate* transport that httpx prefers, and the request never reaches the guarded
+  one. Only a class that owns its own construction can refuse that, so this one does.
+- An environment proxy is **refused rather than quietly ignored**, which is what the transport
+  alone does. Ignoring the proxy an operator configured can put traffic outside an egress
+  control that was assumed to be carrying it. The question is asked with httpx's own parser, so
+  `NO_PROXY` — including `NO_PROXY=*` — means exactly what it means to httpx and a false refusal
+  is not possible.
+- `verify`, `cert`, `http1`, `http2` and `limits` are routed to the transport. On an
+  `httpx.Client` that was given a transport they configure nothing at all, silently — and for
+  `verify` that is a caller believing they set certificate verification when they did not.
+- An argument neither httpx nor this package knows is refused rather than passed through, and a
+  test asserts `httpx.Client` has not grown one that has never been considered. A new way to
+  route a request is a decision here, not something to inherit.
 
 ### Proven
 
@@ -128,5 +144,4 @@ All notable changes to this project are documented here. The format follows
   changes one fails the build instead of moving the answer silently. Twelve of the thirteen are
   addresses the strongest standard-library guard permits and this one refuses.
 
-The httpx *client factory* is not built yet. The transport is, and a transport handed to
-`httpx.Client` is still bypassed by an explicit `proxy=`. There is no release.
+Both client surfaces are built. There is no release.

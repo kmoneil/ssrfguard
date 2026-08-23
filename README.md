@@ -6,14 +6,13 @@ Zero runtime dependencies, enforced by a test rather than by intent.
 
 ## Status
 
-**Alpha.** The address table, the policy layer, resolution, the connection layer and the
-`requests` adapter are built, and the central claim is demonstrated rather than argued: a DNS
-server on loopback moves a record between the validation call and the connect call, and the
-connection lands on the address that was validated.
+**Alpha.** The address table, the policy layer, resolution, the connection layer and both client
+adapters — `httpx` and `requests` — are built, and the central claim is demonstrated rather than
+argued: a DNS server on loopback moves a record between the validation call and the connect
+call, and the connection lands on the address that was validated.
 
 The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
-without now exists; the client surface it applies to is still half-built, there is no `httpx`
-client yet, and there is no release.
+without now exists, and there is no release yet.
 
 ## The problem
 
@@ -32,14 +31,15 @@ it, and the certificate is still verified against the *hostname*.
 
 ```python
 from ssrfguard import Policy
-from ssrfguard.requests import Session
+from ssrfguard.httpx import Client
 
-with Session(policy=Policy()) as session:
-    session.get(untrusted_url)
+with Client(policy=Policy()) as client:
+    client.get(untrusted_url)
 ```
 
-`Session` is a `requests.Session`, so everything it does — redirects, retries, pooled connections
-— goes through the same seam. An `httpx` client with the same guarantee is not built yet.
+`ssrfguard.requests.Session` is the same guarantee for `requests`. Both are ordinary clients of
+their libraries, so everything they do — redirects, retries, pooled connections — goes through
+the same seam, and a proxy is refused rather than silently bypassing it.
 
 ## Requirements
 
