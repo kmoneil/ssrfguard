@@ -308,6 +308,7 @@ ban-relative-imports = "parents"
 # "an explicit proxy= builds a second transport" gap is visible at all. Asserting either through
 # public API is not possible, and not asserting them leaves the claims unchecked.
 "tests/test_httpx_adapter.py" = ["SLF001"]
+"tests/test_async_adapter.py" = ["SLF001"]
 
 # The parity matrix asks httpx which transport a request would be routed to, which is the only
 # place the "an explicit proxy= builds a second transport" asymmetry is observable. Naming it in

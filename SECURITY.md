@@ -60,11 +60,17 @@ These are scope decisions with reasons, not deflections.
 - **Application logic that constructs the URL.** If a program interpolates attacker input into
   a hostname and then asks us to fetch a host that is on the allowlist for the wrong reason, the
   bug is upstream of this library. What *is* ours is everything from the URL inwards.
-- **Unbounded DNS resolution time.** `socket.getaddrinfo` has no timeout and
-  `socket.setdefaulttimeout` does not apply to it, so a hostile authoritative server can stall a
-  lookup. This is documented as a known denial-of-service surface rather than fixed, because
-  fixing it inside the standard library means a thread that may leak. A report of a *new*
-  unbounded path is in scope; this one is known.
+- **Unbounded DNS resolution time, on the synchronous path.** `socket.getaddrinfo` has no
+  timeout and `socket.setdefaulttimeout` does not apply to it, so a hostile authoritative server
+  can stall a lookup. On the synchronous clients this is a known denial-of-service surface rather
+  than something fixed, because fixing it inside the standard library means a thread that may
+  leak, and it is the caller's to supervise. A report of a *new* unbounded path is in scope; this
+  one is known.
+
+  **The asynchronous client is different, and a stall there would be in scope.** A lookup that
+  blocked an event loop would freeze every unrelated request in the process rather than the one
+  that asked for it, so `ssrfguard.httpx.AsyncClient` resolves off the loop in a worker thread.
+  A request through it that does stall the loop is a bug, not a documented limitation.
 - **A host you deliberately allowed, behaving badly within its own rights.** Adding a network to
   `allowed_networks` is an authorization decision you made.
 - **Vulnerabilities in httpx, requests or urllib3 themselves.** Those belong to their projects.

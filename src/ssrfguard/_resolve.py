@@ -203,9 +203,16 @@ def resolve(
 
     Note:
         ``socket.getaddrinfo`` has no timeout and ``socket.setdefaulttimeout`` does not apply to
-        it, so a hostile authoritative server can stall this call for as long as it likes. That
-        is a known denial-of-service surface, it is documented in ``SECURITY.md`` as out of
-        scope, and it is the caller's to supervise on the synchronous path.
+        it, so a hostile authoritative server can stall this call for as long as it likes.
+
+        **The two paths have different answers and one sentence covering both would be wrong for
+        one of them.** On the synchronous path this is a known denial-of-service surface,
+        documented in ``SECURITY.md`` as out of scope, and it is the caller's to supervise: a
+        stalled call holds up the caller that made it. On the asynchronous path it is not out of
+        scope, because a stalled call would hold up *every* task in the process -- so
+        ``ssrfguard.httpx.AsyncClient`` never calls this on the event loop. It runs it in a
+        worker thread, and a test asserts a concurrent task keeps being scheduled while a lookup
+        blocks.
     """
     lookup = resolver if resolver is not None else socket.getaddrinfo
     flags = socket.AI_NUMERICHOST if target.is_literal_address else 0
