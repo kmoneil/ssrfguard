@@ -148,12 +148,13 @@ LANES: tuple[Lane, ...] = (
         # which is a different problem with the same cause: these environments deliberately
         # have neither client installed, and pytest imports every test module before any marker
         # decides what runs. Without the glob the lane dies at collection. It is a glob rather
-        # than a list so that adding an adapter suite does not mean editing this line.
+        # than a list so that adding an adapter suite does not mean editing this line: any
+        # test module with `adapter` in its name is one that needs an extra installed.
         command=(
             "pytest",
             "-m",
             "not egress and not httpx_adapter and not requests_adapter",
-            "--ignore-glob=*_adapter.py",
+            "--ignore-glob=*adapter*.py",
         ),
         matrix=COMPAT_PYTHONS,
     ),

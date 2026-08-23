@@ -107,6 +107,21 @@ All notable changes to this project are documented here. The format follows
 - An argument neither httpx nor this package knows is refused rather than passed through, and a
   test asserts `httpx.Client` has not grown one that has never been considered. A new way to
   route a request is a decision here, not something to inherit.
+- **Redirects, on both adapters, under one matrix.** Every hop opens a connection and every
+  connection validates, so pinning across a chain is free — and everything else about a chain is
+  not. The chain is capped by `Policy.max_redirects` rather than by the client's own counter,
+  which exists to stop loops, defaults to thirty and twenty, and can be changed without touching
+  the policy. Over the limit raises `TooManyRedirectsError`, naming every URL walked.
+- A hop that changes the scheme is refused by this package on both adapters. It was not before:
+  nothing is mounted for `file://` in requests, so the answer was requests' own "no connection
+  adapters were found", which a caller catching `SSRFGuardError` would have missed.
+- `Policy.sensitive_headers` — dropped when a hop leaves the origin, defaulting to the three
+  whose *definition* is credentials. `x-api-key` is a credential by convention rather than by
+  specification, so it is named by the caller who uses it rather than guessed at here. Both
+  clients already dropped `Authorization`; neither dropped anything else.
+- A relative `Location` resolves against the hostname URL, asserted rather than assumed. That is
+  the failure the URL-rewrite approach to pinning has — a `Location: /admin` resolving against a
+  rewritten address — and it is absent here because nothing rewrites a URL.
 
 ### Proven
 

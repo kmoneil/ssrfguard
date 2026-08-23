@@ -57,12 +57,15 @@ from __future__ import annotations
 
 import socket
 import sys
+from collections.abc import Generator
+from typing import Any
 
 import requests
 from requests.adapters import (
     DEFAULT_POOLBLOCK,
     DEFAULT_POOLSIZE,
     DEFAULT_RETRIES,
+    BaseAdapter,
     HTTPAdapter,
 )
 from requests.utils import select_proxy
@@ -74,7 +77,7 @@ from urllib3.util.retry import Retry
 from ssrfguard._connect import connect
 from ssrfguard._policy import Policy
 from ssrfguard._resolve import Resolver, resolve
-from ssrfguard.errors import ProxyUnsupportedError
+from ssrfguard.errors import ProxyUnsupportedError, TooManyRedirectsError
 
 __all__ = ["SafeAdapter", "Session"]
 
@@ -433,6 +436,10 @@ class Session(requests.Session):
             pool_block: Whether to block when a pool is full.
         """
         super().__init__()
+        self.policy = policy
+        # Set for anyone reading the attribute; enforced in `resolve_redirects`, which is what
+        # makes it the policy's number rather than a default somebody can reassign past.
+        self.max_redirects = policy.max_redirects
         adapter = SafeAdapter(
             policy=policy,
             resolver=resolver,
@@ -446,3 +453,106 @@ class Session(requests.Session):
         # are the same two prefixes.
         self.mount("http://", adapter)
         self.mount("https://", adapter)
+
+    def get_adapter(self, url: str) -> BaseAdapter:
+        """Check the whole URL, then pick the adapter for it.
+
+        This is the per-request URL check, and ``requests`` calls it for every hop of a redirect
+        chain. Doing it here rather than in the adapter is what makes a hop to a scheme the
+        policy refuses arrive as a refusal from this package: nothing is mounted for ``file://``,
+        so without this the answer would be requests' own "no connection adapters were found",
+        which is a different sentence about a different thing.
+
+        Args:
+            url: The URL about to be sent to.
+
+        Returns:
+            The adapter mounted for it.
+
+        Raises:
+            BlockedURLError: If the URL is not permitted.
+            BlockedAddressError: If the host was a literal address the policy denies.
+        """
+        self.policy.check_url(url)
+        return super().get_adapter(url)
+
+    def resolve_redirects(
+        self,
+        resp: requests.Response,
+        req: requests.PreparedRequest,
+        stream: bool = False,
+        timeout: float | tuple[float | None, float | None] | None = None,
+        verify: bool | str = True,
+        cert: str | tuple[str, str] | None = None,
+        proxies: dict[str, str] | None = None,
+        yield_requests: bool = False,
+        # requests' own per-hop extras, forwarded unchanged.
+        **adapter_kwargs: Any,  # noqa: ANN401
+    ) -> Generator[requests.Response, None, None]:
+        """Walk a redirect chain under this package's own limit.
+
+        The cap is re-asserted here rather than only at construction, so that it is the policy's
+        number at the moment it is used whatever has been assigned to the attribute since. The
+        client's own limit is not a security control: it exists to stop loops, it defaults to
+        thirty, and it is configurable independently of everything this package decides.
+
+        Args:
+            resp: The response that redirected.
+            req: The request that produced it.
+            stream: Whether to stream each hop's body.
+            timeout: Connect and read timeouts.
+            verify: TLS verification, as requests defines it.
+            cert: A client certificate.
+            proxies: The merged proxy mapping.
+            yield_requests: Yield requests rather than responses, as requests defines it.
+            **adapter_kwargs: Passed through to the adapter.
+
+        Yields:
+            One response per hop.
+
+        Raises:
+            TooManyRedirectsError: If the chain is longer than the policy allows. Raised before
+                the over-limit hop is sent, because requests checks its limit before sending.
+        """
+        self.max_redirects = self.policy.max_redirects
+        try:
+            yield from super().resolve_redirects(
+                resp,
+                req,
+                stream=stream,
+                timeout=timeout,
+                verify=verify,
+                cert=cert,
+                proxies=proxies,
+                yield_requests=yield_requests,
+                **adapter_kwargs,
+            )
+        except requests.TooManyRedirects as exceeded:
+            walked = exceeded.response
+            chain = (
+                ()
+                if walked is None  # pragma: no cover - requests always names the response
+                else tuple(str(hop.url) for hop in [*walked.history, walked])
+            )
+            raise TooManyRedirectsError(self.policy.max_redirects, chain) from exceeded
+
+    def rebuild_auth(
+        self, prepared_request: requests.PreparedRequest, response: requests.Response
+    ) -> None:
+        """Drop the policy's sensitive headers when a redirect leaves the origin.
+
+        requests already drops ``Authorization`` here, and this widens that to whatever the
+        caller told the policy is a credential. The decision of *whether* this hop leaves the
+        origin is requests' own, so this can only ever strip more than requests would, never
+        less.
+
+        Args:
+            prepared_request: The request about to be sent to the redirect target.
+            response: The response that redirected.
+        """
+        super().rebuild_auth(prepared_request, response)
+        if not self.should_strip_auth(str(response.request.url), str(prepared_request.url)):
+            return
+        for name in list(prepared_request.headers):
+            if name.lower() in self.policy.sensitive_headers:
+                del prepared_request.headers[name]
