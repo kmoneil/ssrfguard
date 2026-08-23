@@ -235,6 +235,28 @@ All notable changes to this project are documented here. The format follows
   Apache and IIS converge for a request line. `SECURITY.md` now also says plainly that the
   *response body* is the client's to bound and not this package's, which is the other half of
   that sentence and was left to inference.
+- **What this package costs is published, and the three source comments that asserted a cost
+  without carrying one now carry one.** A reader deciding whether to put this in front of every
+  outbound request had no way to find out what that costs except by measuring it. The README's new
+  "What it costs" section gives the shape that stays true, which is that the URL check runs once
+  per request and resolution once per connection, a table of measured per-call figures with the
+  machine that produced them, and the command that reproduces them on the reader's own hardware:
+  a headline number is wrong on somebody else's CPU the moment they read it.
+
+  It publishes the unflattering half too, because a section that did not would be marketing: an
+  internationalised name costs about five times an ASCII one and the faster alternative is a
+  dependency this package will not take; the most expensive URL a default policy accepts costs
+  about 130 times an ordinary one; and the async client's lookups are bounded by its resolver
+  pool. `SECURITY.md` gains the same ceiling in its own terms, where it is a security property
+  rather than a performance note, and states the currency explicitly: the question a ceiling has
+  to answer is not how long a URL may be but how much more one URL may cost than another, which
+  is the distinction `max_url_length` alone got wrong.
+
+  In the source, `requests.py` said the URL check at the socket seam "costs nothing" and now says
+  4 to 9 microseconds against a handshake three orders of magnitude larger; the address table's
+  precomputed index says what it is worth, 3.47us against 5.11us, and, more usefully, why it
+  should not be improved further; and `max_url_length` carries both per-character figures rather
+  than only the expensive one.
 - **The async client resolves through a pool of its own rather than anyio's process-wide one.**
   Moving `getaddrinfo` off the event loop fixed the failure where one hostile name froze every
   task in the process. It did not remove the bound, because a thread blocked in `getaddrinfo`

@@ -66,6 +66,47 @@ interpreter and fails if importing it loads anything that is not ours.
 
 The SBOM attached to every release is nearly empty. That is the point.
 
+## What it costs
+
+Every check this package makes sits in front of somebody's outbound request, so the price is a
+fair thing to ask about before installing it, and quoting a single headline number would be the
+wrong way to answer: it would be wrong on your hardware the moment you read it.
+
+The shape is stable and is the useful part. **The URL check runs once per request; resolution and
+the address check run once per connection.** So the per-request cost is one `check_url`, and
+everything expensive is amortised over a connection's lifetime.
+
+| measured | per call |
+| --- | --- |
+| `check_url`, ordinary hostname | 4.2 us |
+| `check_url`, literal IPv4 | 9.0 us |
+| `check_url`, internationalised name | 20.9 us |
+| `check_url`, the most expensive URL a default policy accepts | 560 us |
+| `import ssrfguard`, over an empty interpreter | 19 ms |
+
+Python 3.13 on aarch64, CPU time on the calling thread. For comparison, httpx spends roughly 170
+microseconds of its own CPU on a request over loopback, so the check is a couple of percent of
+that and nothing measurable at all against a request that crosses a network. Run
+`python scripts/lanes.py cost` for the numbers on your hardware; that lane prints them with the
+environment that produced them.
+
+Three things are worth knowing before you meet them:
+
+- **An internationalised name costs about five times an ASCII one**, because CPython's `idna`
+  codec runs nameprep per label in pure Python. The faster alternative is a dependency, and this
+  package does not take dependencies.
+- **The most expensive URL a default policy will accept costs about 130 times an ordinary one.**
+  Two ceilings bound it and it takes both: `max_url_length` counts characters of URL, and the
+  cost is in characters of *host*, which is capped separately at the 253 that DNS can carry.
+- **The async client's lookups are bounded by its own pool**, `resolver_slots`, defaulting to the
+  connection pool's `max_connections`. A held lookup cannot be cancelled, so past that number a
+  *new* name waits; connections already open are unaffected.
+
+None of these numbers is a promise. What is enforced is in `tests/test_cost.py`, and none of it
+is a stopwatch: a threshold in microseconds is a threshold about the machine that ran it. Two of
+the three assertions compare one measurement to another taken in the same run, and the third
+counts calls and holds no clock at all.
+
 ## What this is not
 
 **This is not a replacement for network egress control.** A library cannot stop a compromised
