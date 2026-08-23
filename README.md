@@ -6,8 +6,8 @@ Zero runtime dependencies, enforced by a test rather than by intent.
 
 ## Status
 
-**Alpha.** The address table, the policy layer, resolution, the connection layer and both client
-adapters — `httpx` and `requests` — are built, and the central claim is demonstrated rather than
+**Alpha.** The address table, the policy layer, resolution, the connection layer and all three
+client surfaces — `httpx`, `httpx` async and `requests` — are built, and the central claim is demonstrated rather than
 argued: a DNS server on loopback moves a record between the validation call and the connect
 call, and the connection lands on the address that was validated.
 
@@ -37,9 +37,14 @@ with Client(policy=Policy()) as client:
     client.get(untrusted_url)
 ```
 
-`ssrfguard.requests.Session` is the same guarantee for `requests`. Both are ordinary clients of
-their libraries, so everything they do — redirects, retries, pooled connections — goes through
-the same seam, and a proxy is refused rather than silently bypassing it.
+`ssrfguard.httpx.AsyncClient` and `ssrfguard.requests.Session` are the same guarantee for the
+async client and for `requests`. All three are ordinary clients of their libraries, so everything
+they do — redirects, retries, pooled connections — goes through the same seam, and a proxy is
+refused rather than silently bypassing it.
+
+The async client resolves off the event loop. `getaddrinfo` blocks and has no timeout, so a
+hostile nameserver that stalled a lookup on the loop would freeze every unrelated request in the
+process — which is how a security library becomes an outage and then gets removed.
 
 ## Requirements
 

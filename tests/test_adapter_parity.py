@@ -23,6 +23,7 @@ Anything else that differs is a defect, and the way to add a guarantee is to add
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import ssl
 from collections.abc import Iterator
@@ -160,14 +161,34 @@ def policy_for(port: int, **overrides: object) -> Policy:
 def test_the_clients_own_connect_path_is_never_entered(
     adapter: Adapter, server: RecordingServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each client has one function that resolves a name and opens a socket, and each seam
-    replaces it. Made to raise, it turns "we believe the override took" into a checked claim."""
+    """Two claims, both made by breaking what would have to be used if either were false.
+
+    Each client has one function that resolves a name and opens a socket, and each seam replaces
+    it -- so making that raise turns "we believe the override took" into a checked claim.
+
+    And ``socket.getaddrinfo`` is made to refuse any host that is not already an address. That
+    is the *behavioural* half and it is the one that generalises: whatever a client does
+    internally, a name reaching the platform resolver is a lookup this package did not make and
+    did not validate. Numeric hosts are still allowed through, because a numeric parse is not a
+    lookup -- it is how an address becomes a sockaddr.
+    """
 
     def refuse(*_args: object, **_kwargs: object) -> socket.socket:
         raise AssertionError(f"{adapter.name} connected on its own; the seam was bypassed")
 
-    module, attribute = adapter.native
-    monkeypatch.setattr(module, attribute, refuse)
+    owner, attribute = adapter.native
+    monkeypatch.setattr(owner, attribute, refuse)
+
+    real_getaddrinfo = socket.getaddrinfo
+
+    def only_addresses(host: str, port: int, *args: object, **kwargs: object) -> list[tuple]:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            raise AssertionError(f"{adapter.name} looked up the name {host!r}") from None
+        return real_getaddrinfo(host, port, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", only_addresses)
 
     resolver = Resolver(**{"pinned.test": "127.0.0.1"})
     with adapter.opened(policy_for(server.port), resolver) as client:

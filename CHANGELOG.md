@@ -133,6 +133,23 @@ All notable changes to this project are documented here. The format follows
   still holds: a unix socket is refused only where one can be asked for (urllib3 has no such
   path), and the low-level object is enough for requests but not for httpx (requests hands the
   adapter the merged proxy mapping; httpx builds a second transport and never consults ours).
+- **`ssrfguard.httpx.AsyncClient`, and it resolves off the event loop.** `getaddrinfo` blocks and
+  has no timeout, so an async backend that resolved inline would stall the whole loop and one
+  hostile hostname would freeze every unrelated request in the process. Resolution runs in a
+  worker thread through `anyio.to_thread.run_sync` — anyio rather than `loop.getaddrinfo`
+  because httpx supports trio as well as asyncio, and because anyio is already a hard dependency
+  of httpx. A test counts a concurrent task's ticks while a lookup blocks; another asserts two
+  stalled lookups overlap rather than queue.
+- The async connection is made by `anyio.connect_tcp` from the validated address, which performs
+  no name resolution at all when given one — measured — and the stream it returns is wrapped in
+  httpcore's own, so TLS stays httpcore's code there too. The peer is confirmed after the
+  connection is up, as on the synchronous path.
+- The async client is a third row in the shared matrix rather than a third suite: every
+  guarantee already asserted of the two synchronous surfaces is asserted of it, driven through a
+  blocking portal so it runs the same tests rather than a translation of them.
+- `SECURITY.md` now separates the two resolution paths. Unbounded lookup time stays out of scope
+  on the synchronous clients, where it holds up the caller that asked for it; **a stall that
+  reaches the event loop is in scope**, because it holds up everyone else.
 - **The `leaks` lane runs.** `tests/ssrfguard_leakcheck.py` is a pytest plugin, loaded by that
   lane and by nothing else, which fails the test that leaves a socket open and names the peer it
   was connected to. It compares open file descriptors rather than walking the object graph,
