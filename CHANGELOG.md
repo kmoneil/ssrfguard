@@ -235,6 +235,26 @@ All notable changes to this project are documented here. The format follows
   Apache and IIS converge for a request line. `SECURITY.md` now also says plainly that the
   *response body* is the client's to bound and not this package's, which is the other half of
   that sentence and was left to inference.
+- **`check_url` no longer parses its host as an address twice, or at all for a name.** It was
+  40% of the check. `_check_host` parsed the host to find out whether the hostname rules applied,
+  used the answer as a boolean and discarded it, and `check_url` then parsed the same string again
+  to get the value back; on a name each of those raised three exceptions inside
+  `ipaddress.ip_address` to arrive at `None`. `_check_host` now returns what it parsed, and a
+  one-character test runs in front of the parse: everything `ip_address` accepts either holds a
+  colon or is nothing but digits and dots, and the second half of that was already being computed
+  two lines further down. An ordinary hostname now reaches `ip_address` zero times.
+
+  Measured on the five supported interpreters, `check_url` on a corpus of distinct hostnames:
+  **8.84 to 5.62 microseconds on 3.10 and 7.59 to 4.02 on 3.13**, between 36% and 47%. Literal
+  addresses gain 13 to 18%, internationalised names 14 to 16%. No behaviour change: same inputs,
+  same outputs, same order of refusals.
+
+  **The shortcut is a wrong-permit surface if the rule behind it is ever wrong** -- a literal
+  address mistaken for a name skips `check_address` entirely -- so the rule is asserted rather
+  than argued. Two Hypothesis properties in `tests/test_policy_properties.py` say that nothing
+  `ip_address` accepts fails the one-character test, over generated text and over generated
+  addresses in both spellings. The branch itself was already covered: dropping the colon arm turns
+  every IPv6-literal URL into a wrong deny and six existing tests go red.
 - **A host longer than DNS can carry is refused before normalisation, at 253 characters.**
   `max_url_length` bounded the wrong quantity and the gap was three orders of magnitude wide. It
   counts characters of URL; the `idna` codec runs on characters of *host*, once per label, at

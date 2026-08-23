@@ -18,8 +18,9 @@ in what* was never pinned down: the scan is linear in characters of URL and the 
 linear in characters of host, at two hundred and fifty times the price. A regex argument cannot
 reach that, and neither can a stopwatch. A ratio can.
 
-One threshold, the host-parse count, is a **ratchet set at what the tree does today** rather than
-at what it should do, and it says in place what lowers it. That is the same stance
+Every threshold here now sits at what the code should do rather than at what it happened to do
+when the gate was written, and each says in place what it is protecting. Two of them arrived as
+ratchets above the tree and were lowered as the work behind them landed, which is the same stance
 ``scripts/lanes.py`` takes on the coverage floor: a floor is a ratchet, not a dare.
 """
 
@@ -34,15 +35,17 @@ from ssrfguard import Policy, _policy
 
 #: How many times ``check_url`` may parse its host as an address.
 #:
-#: **Two today, and one of them is pure waste.** ``_check_host`` parses the host, uses the answer
-#: as a boolean and throws it away; ``check_url`` parses the same string again to get the value
-#: back. On a hostname each of those raises three exceptions to arrive at ``None``, which is 40%
-#: of the whole check. This drops to 1 once ``_check_host`` returns the address it already
-#: parsed, and to 0 for a name once a one-character test goes in front of the parse: every string
-#: ``ip_address`` accepts either holds a colon or is all digits and dots.
+#: **One, and for a name it is zero.** It was two: ``_check_host`` parsed the host, used the
+#: answer as a boolean and threw it away, and ``check_url`` parsed the same string again to get
+#: the value back. On a name each of those raised three exceptions to arrive at ``None``, which
+#: was 40% of the whole check. ``_check_host`` now returns what it parsed, and a one-character
+#: test runs in front of the parse, so an ordinary hostname never reaches ``ip_address`` at all.
+#:
+#: The regression this bounds is somebody adding a call back for convenience, which is exactly
+#: how the second one arrived: it reads as free.
 #:
 #: A count rather than a duration, so this gates without a clock and cannot flake.
-_MAX_HOST_PARSES = 2
+_MAX_HOST_PARSES = 1
 
 #: How much more the ``idna`` path may cost than the ASCII one, at the same URL length.
 #:
@@ -66,8 +69,16 @@ _MAX_IDNA_MULTIPLE = 30
 #: How much more an 8 KiB URL may cost than a 1 KiB one: eight times the input, so at most this
 #: many times the work if the scan is linear, and about sixty-four times if it is quadratic.
 #:
-#: 16 sits between the two with a factor of four either side, so it distinguishes the thing worth
-#: distinguishing and tolerates a great deal of noise doing it. Measured at 4.4.
+#: 16 sits between the two with a factor of three either side, so it distinguishes the thing worth
+#: distinguishing and tolerates a great deal of noise doing it. Measured at 5.0 to 5.9 across the
+#: five supported interpreters.
+#:
+#: It read 3.9 to 4.5 before the host parse was taken out of ``check_url``, and rose without
+#: anything getting slower, which is worth understanding before reading a future move as a
+#: regression. Both URLs here pay the same fixed cost and the 1 KiB one pays proportionally more
+#: of it, so removing fixed cost from both moves the ratio *towards* the 8 that linear scanning
+#: implies. A number approaching 8 from below is this measurement getting cleaner. Only a number
+#: heading for 64 is a defect.
 _MAX_LENGTH_SCALING = 16
 
 
@@ -77,11 +88,11 @@ def policy() -> Policy:
     return Policy()
 
 
-def test_check_url_parses_the_host_as_an_address_at_most_twice(policy: Policy) -> None:
+def test_check_url_parses_the_host_as_an_address_at_most_once(policy: Policy) -> None:
     """A count, so this gates on every runner and flakes on none.
 
-    The regression this exists for is somebody adding a third call for convenience, which is
-    exactly how the second one arrived: it reads as free, and it is 40% of the check.
+    Asserted for a name and for both address families, because they take different branches and
+    only one of them should reach the parser at all.
     """
     for url in (cost_corpus.TYPICAL[0], cost_corpus.V4_LITERALS[0], cost_corpus.V6_LITERALS[0]):
         with mock.patch.object(_policy, "ip_address", wraps=_policy.ip_address) as parses:

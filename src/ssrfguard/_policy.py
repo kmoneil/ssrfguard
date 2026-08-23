@@ -411,10 +411,9 @@ class Policy:
         split = self._split(url)
         scheme = self._check_scheme(url, split)
         self._check_userinfo(url, split)
-        host, as_written = self._check_host(url, split)
+        host, as_written, address = self._check_host(url, split)
         port = self._check_port(url, split, scheme)
 
-        address = _literal_address(host)
         if address is not None:
             try:
                 self.check_address(address)
@@ -528,8 +527,8 @@ class Policy:
         )
 
     @staticmethod
-    def _check_host(url: str, split: SplitResult) -> tuple[str, str]:
-        """Normalise and check the host.
+    def _check_host(url: str, split: SplitResult) -> tuple[str, str, IPAddress | None]:
+        """Normalise and check the host, and say whether it turned out to be an address.
 
         Normalisation uses the ``idna`` codec, which is the same transformation CPython's
         ``socket.getaddrinfo`` applies internally, so the name checked here is exactly the name
@@ -541,8 +540,15 @@ class Policy:
             url: The URL as given, for the message.
             split: The parsed URL.
 
+        **The parsed address is returned rather than discarded**, which is the whole reason for
+        the third element. This function has to know whether the host is a literal in order to
+        decide whether the hostname rules apply to it, and :meth:`Policy.check_url` needs the
+        value; handing back only the string meant parsing it twice, and on a name that is six
+        raised exceptions to arrive at ``None`` both times.
+
         Returns:
-            A pair of (normalised host, host as written).
+            The normalised host, the host as written, and the parsed address when the host was
+            a literal one rather than a name.
 
         Raises:
             BlockedURLError: If the host is missing or malformed.
@@ -561,9 +567,17 @@ class Policy:
             )
         _reject_overlong_host(raw)
         host = _normalise(url, raw)
-        if _literal_address(host) is not None:
-            return host, raw
-        if _NUMERIC_SHAPED.match(host):
+        # **The cheap discriminating test first.** Everything `ip_address` accepts either holds
+        # a colon or is nothing but digits and dots, so a host that is neither cannot be an
+        # address and does not need to be handed to a parser that answers by raising. That is
+        # the ordinary case, and it was the most expensive thing in this function.
+        # `tests/test_policy_properties.py` holds the differential that says the two agree.
+        numeric_shaped = _NUMERIC_SHAPED.match(host) is not None
+        if numeric_shaped or ":" in host:
+            address = _literal_address(host)
+            if address is not None:
+                return host, raw, address
+        if numeric_shaped:
             raise BlockedURLError(
                 url,
                 f"host {host!r} is made only of digits and dots but is not a valid address, so "
@@ -571,7 +585,7 @@ class Policy:
             )
         if not _HOSTNAME.match(host):
             raise BlockedURLError(url, f"host {host!r} is not a well-formed hostname")
-        return host, raw
+        return host, raw, None
 
     def _check_port(self, url: str, split: SplitResult, scheme: str) -> int:
         """Check the port against the policy.
