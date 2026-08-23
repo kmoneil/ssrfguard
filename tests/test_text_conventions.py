@@ -117,7 +117,7 @@ def test_the_one_known_exception_is_still_the_only_one() -> None:
     text = (REPO_ROOT / "src" / "ssrfguard" / "_policy.py").read_text(encoding="utf-8")
     non_ascii = [number for number, line in enumerate(text.splitlines(), 1) if not line.isascii()]
 
-    assert non_ascii == [518], (
+    assert non_ascii == [537], (
         f"the known non-ASCII line in _policy.py moved or multiplied: {non_ascii}. If the file "
         f"is now ASCII, delete the exemption in test_the_shipped_package_stays_ascii."
     )

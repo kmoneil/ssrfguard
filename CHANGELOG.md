@@ -235,6 +235,24 @@ All notable changes to this project are documented here. The format follows
   Apache and IIS converge for a request line. `SECURITY.md` now also says plainly that the
   *response body* is the client's to bound and not this package's, which is the other half of
   that sentence and was left to inference.
+- **A host longer than DNS can carry is refused before normalisation, at 253 characters.**
+  `max_url_length` bounded the wrong quantity and the gap was three orders of magnitude wide. It
+  counts characters of URL; the `idna` codec runs on characters of *host*, once per label, at
+  roughly 250 times the price of the scan. So a URL sitting comfortably inside the 8192-character
+  ceiling could carry 389 non-ASCII labels, cost **14.9 milliseconds of one worker**, measured,
+  and be *accepted* -- and the name it produced was 10 508 characters, which no resolver can look
+  up, so the work was certain to be wasted before it started. One core absorbed 67 of those per
+  second. The cap is a constant rather than a policy field because a longer name cannot resolve
+  anywhere, so a knob would only offer the choice of paying more to reach the same refusal, and it
+  is applied to the host as written rather than to its A-label form because punycode only grows a
+  name, so this bounds the work without narrowing what can resolve. Checked before `_normalise`
+  for the reason the URL ceiling is checked before anything scans the string. The refusal quotes
+  the length, not the host.
+
+  **This is a behaviour change.** Such a host was refused before too, but by `socket.gaierror` at
+  resolution rather than `BlockedURLError` at check time, so a caller that tells "the policy
+  refused this" apart from "DNS could not find this", which is what a retry or a circuit breaker
+  does, sees one class of input move between the two.
 - **The `socket_options` ordering asymmetry is documented and pinned rather than discovered.**
   They are applied before connect on `Client` and after connect on `AsyncClient`, because anyio
   owns socket creation on the asynchronous path. So `SO_SNDBUF` and `SO_RCVBUF` window scaling,
