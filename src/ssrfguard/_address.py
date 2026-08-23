@@ -1,14 +1,14 @@
 """Classifying an address, including what a translation prefix carries inside it.
 
 The table in `_registry` says what a *block* means. This module answers the question actually
-being asked -- *may a fetcher connect here* -- which for four prefixes is a question about
+being asked, *may a fetcher connect here*, which for four prefixes is a question about
 something else entirely. `64:ff9b::7f00:1` is a globally routable address whose packets arrive
 at 127.0.0.1, and a guard that answers about the wrapper has answered the wrong question.
 
 Two rules govern everything here:
 
-* **Longest prefix wins.** IANA's structure is nested on purpose -- `192.0.0.0/24` is refused
-  while `192.0.0.9/32` inside it is a public anycast service -- so a lookup that stopped at the
+* **Longest prefix wins.** IANA's structure is nested on purpose: `192.0.0.0/24` is refused
+  while `192.0.0.9/32` inside it is a public anycast service, so a lookup that stopped at the
   first match would be wrong in both directions depending on table order.
 * **Fail closed.** A translation prefix whose payload cannot be decoded is refused, not
   permitted. There is no address whose classification is unknown; there are only addresses that
@@ -35,7 +35,7 @@ IPNetwork = IPv4Network | IPv6Network
 _MAX_TRANSLATION_DEPTH = 2
 
 # Compared as parsed networks, never as text. `str(ip_network("::ffff:0:0/96"))` is
-# `"::ffff:0.0.0.0/96"` -- Python renders the last 32 bits in dotted-quad -- so a string
+# `"::ffff:0.0.0.0/96"`, because Python renders the last 32 bits in dotted-quad, so a string
 # comparison here silently fails to match and the prefix stops being decoded. That is a
 # *wrong deny*: `::ffff:8.8.8.8` gets refused as a wrapper instead of resolving to a public
 # address. It was written that way first and the test corpus caught it.
@@ -100,7 +100,7 @@ def _embedded_v4(address: IPv6Address, network: IPNetwork) -> tuple[IPAddress, .
         network: The matched block, which decides where the payload sits.
 
     Returns:
-        Every IPv4 address embedded in it. Teredo yields two -- the server and the client --
+        Every IPv4 address embedded in it. Teredo yields two, the server and the client,
         because a packet to a Teredo address involves both and either being internal is
         disqualifying. Empty when the payload cannot be read.
     """
@@ -130,7 +130,7 @@ class AddressTable:
     that said the same thing and enforced none of it: `DEFAULT_DENIED` is a module-level
     singleton and the default for every :class:`~ssrfguard.Policy`, so one assignment anywhere in
     a process changed what every policy in it refused, retroactively. The sharper form was
-    quieter -- ``blocks`` is the attribute with the public-looking name, every lookup reads the
+    quieter: ``blocks`` is the attribute with the public-looking name, every lookup reads the
     index derived from it, and a write to one left the table reporting a rule it did not enforce.
     That is this package's own failure mode, one layer down.
 
@@ -145,7 +145,7 @@ class AddressTable:
     snapshot: str = REGISTRY_SNAPSHOT
     # Sorted longest-prefix-first per family, so the first containing entry found is the most
     # specific one. Precomputed because this runs on every resolved address of every request,
-    # and derived rather than given -- which is why it is not an argument.
+    # and derived rather than given, which is why it is not an argument.
     _by_version: dict[int, tuple[Block, ...]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -153,7 +153,7 @@ class AddressTable:
 
         Raises:
             ValueError: If two blocks name the same network. Lookup is longest-prefix and
-                stable, so a duplicate is not an error the table can express -- one of the two
+                stable, so a duplicate is not an error the table can express: one of the two
                 entries simply never applies, and nothing anywhere says which. A custom table
                 that shadows a shipped rule is a rule the author believes is in force and is
                 not, so this refuses at construction rather than at the address that needed it.
@@ -186,7 +186,7 @@ class AddressTable:
     def __repr__(self) -> str:
         """Render a count and a provenance stamp rather than sixty blocks.
 
-        The dataclass default spells every field out, and a table holds the whole registry -- so
+        The dataclass default spells every field out, and a table holds the whole registry, so
         the generated form is eleven kilobytes, and because a :class:`~ssrfguard.Policy` carries
         a table, it is eleven kilobytes *inside* every policy repr that reaches a log line, a
         traceback or a REPL. :meth:`ssrfguard.Target.__repr__` exists for the same reason and the
@@ -216,7 +216,7 @@ class AddressTable:
 
         Args:
             address: The address, as text or already parsed. Text is parsed with
-                ``ipaddress.ip_address``, which accepts no hostnames and no ports -- this
+                ``ipaddress.ip_address``, which accepts no hostnames and no ports. This
                 function never resolves anything.
 
         Returns:

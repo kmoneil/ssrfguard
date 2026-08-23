@@ -2,12 +2,12 @@
 
 Names carry the ``Error`` suffix, which is a departure from the design's ``BlockedAddress`` and
 ``BlockedURL``. PEP 8 asks for it on anything that is an error condition, `N818` gates it, and a
-refused address is an error condition -- so the design is amended rather than the rule waived.
+refused address is an error condition, so the design is amended rather than the rule waived.
 
 Every message names the value that was refused **and which rule refused it**. That is not
 politeness: a refusal a user cannot act on gets configured around, and a control that gets
 configured around protects nothing. It is also why the test suite pins whole messages rather
-than matching substrings -- `raises-require-match-for = []` in `pyproject.toml` exists for this.
+than matching substrings; `raises-require-match-for = []` in `pyproject.toml` exists for this.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class BlockedURLError(SSRFGuardError):
     """A URL is not permitted by the policy.
 
     Raised before any name resolution happens, so the reason is always about the URL as written
-    -- its scheme, its authority, its port -- and never about where a hostname points. A URL
+    its scheme, its authority or its port, and never about where a hostname points. A URL
     that survives this can still be refused once its addresses are known, and that refusal
     carries :class:`BlockedAddressError` instead.
 
@@ -96,7 +96,7 @@ class TooManyRedirectsError(SSRFGuardError):
     that stays under it still gets one policy evaluation per hop from us either way.
 
     At ``max_redirects=0`` this is raised by a single redirect **response**, even when the caller
-    switched following off at the client -- both clients build the next request in order to
+    switched following off at the client, because both clients build the next request in order to
     expose it, and the cap fires on the build rather than on the send. That is the honest reading
     of a policy that permits no redirect, and it is asserted on all three client surfaces so it
     cannot be "fixed" by somebody who did not know it was decided.

@@ -2,8 +2,8 @@
 
 This is the shortest module in the package and the one the whole argument reduces to. It takes
 addresses that have already been checked and opens a socket to one of them. It has no hostname
-to look up, no resolver to call and no code path that could reach either -- which is not a
-discipline anyone has to maintain, it is the shape of the function's arguments.
+to look up, no resolver to call and no code path that could reach either. That is not a
+discipline anyone has to maintain; it is the shape of the function's arguments.
 
 Two things here are less obvious than they look.
 
@@ -18,14 +18,14 @@ is what makes iterating over the survivors safe.
 timeout is per attempt, and how many attempts there are is decided by whoever runs the
 authoritative server for the name being fetched. A zone that answers with two hundred permitted
 addresses, all of them silently dropping packets, turns one request into two hundred times the
-timeout the caller asked for -- a worker held for as long as the attacker cares to hold it, on a
+timeout the caller asked for: a worker held for as long as the attacker cares to hold it, on a
 path that looks like a slow upstream rather than like an attack. Failing over needs a handful of
 attempts, not all of them.
 
 **The peer is checked after the connection is up.** ``connect`` to a specific address cannot
 land somewhere else, so this looks redundant. It is the cheapest possible answer to everything
-between this process and the wire -- a transparent proxy, a redirecting firewall rule, a
-platform quirk -- and it is what mlflow's own issue recommended when the same bug was found
+between this process and the wire, such as a transparent proxy, a redirecting firewall rule or
+a platform quirk, and it is what mlflow's own issue recommended when the same bug was found
 there: validate the peer after connect and before sending anything.
 """
 
@@ -53,7 +53,7 @@ def exhausted(failures: Sequence[str], skipped: int, cap: int) -> str:
     """Say what was tried, what each attempt cost, and what was left untried.
 
     **Shared with the asynchronous backend rather than written twice.** The two failover loops
-    cannot merge -- one drives a socket and the other drives anyio -- but this half is pure and
+    cannot merge, since one drives a socket and the other drives anyio, but this half is pure and
     was character-identical in both, which makes it the half that drifts silently: a reworded
     failure line on one client and not the other is invisible until somebody greps a log.
 
@@ -105,7 +105,7 @@ def _open(
         if source_address is not None:
             sock.bind(source_address)
         # **The pin.** `address.sockaddr` is the tuple the resolver produced and the policy
-        # approved, passed through untouched -- so for IPv6 the scope identifier is still on it.
+        # approved, passed through untouched, so for IPv6 the scope identifier is still on it.
         sock.connect(address.sockaddr)
         _verify_peer(sock, address)
     except BaseException:
@@ -148,7 +148,7 @@ def connect(
             :func:`ssrfguard.resolve`. Every one of them is checked again here, and the first
             ``policy.max_connection_attempts`` of them are tried.
         policy: The policy they were validated against. **Required, not optional**, so that
-            there is no path through this package to a socket that skipped the check -- an
+            there is no path through this package to a socket that skipped the check. An
             optional security check is a security check somebody forgets. Also supplies
             ``max_connection_attempts``, which bounds how long a hostile answer set can hold
             this call.
@@ -166,14 +166,14 @@ def connect(
             tuple, so this means the caller assembled the sequence some other way.
         BlockedAddressError: If any address is not permitted by ``policy``. Raised immediately
             rather than skipped, because for a sequence that came from :func:`ssrfguard.resolve`
-            it cannot happen -- so it happening means the caller bypassed resolution, and that
+            it cannot happen, so it happening means the caller bypassed resolution, and that
             is exactly when a loud failure beats a quiet fallback.
         OSError: If every attempt was refused by the network. The message names each address
             tried, what it failed with, and how many were left untried; the last failure is
             chained as the cause.
         TimeoutError: If every attempt timed out, rather than a plain :class:`OSError`. A
-            caller that distinguishes a timeout from a refusal -- which is what a retry or a
-            circuit breaker is for -- gets the same answer the unguarded client would have
+            caller that distinguishes a timeout from a refusal, which is what a retry or a
+            circuit breaker is for, gets the same answer the unguarded client would have
             given it. A single refusal among the attempts makes this an ``OSError`` instead,
             because the refusal is the more informative of the two.
 
@@ -191,7 +191,7 @@ def connect(
     failures: list[str] = []
     last: OSError | None = None
     # Every failure so far having been a timeout, which starts true because the loop below
-    # always runs at least once -- `addresses` is non-empty and the cap is at least one.
+    # always runs at least once, because `addresses` is non-empty and the cap is at least one.
     only_timeouts = True
     for address in attempted:
         try:
@@ -203,7 +203,7 @@ def connect(
 
     message = exhausted(failures, len(addresses) - len(attempted), policy.max_connection_attempts)
     # `TimeoutError` is an `OSError`, so a plain `OSError` here would be caught by the adapters'
-    # `except OSError` before their `except TimeoutError` ever ran -- and a caller who
+    # `except OSError` before their `except TimeoutError` ever ran, and a caller who
     # distinguishes "timed out" from "refused", which is what every retry and circuit-breaker
     # does, would be told the wrong one. Only when *every* attempt timed out: a refusal mixed
     # in is the more informative answer of the two.
