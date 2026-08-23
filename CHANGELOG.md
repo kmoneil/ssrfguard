@@ -27,6 +27,11 @@ All notable changes to this project are documented here. The format follows
   `Target`, which is an origin rather than a URL: no path, no query, no `geturl`, and a `__str__`
   that renders `<Target https host=example.com port=443>`. A policy check is necessary and not
   sufficient, and the return type is what keeps that true.
+- `Target.__repr__` renders that same debug form. A frozen dataclass generates a `repr` that
+  spells every field out, and `repr` — not `str` — is what reaches a log line, a traceback and
+  any container a target is printed inside, so the careful rendering was the one form nobody
+  ever saw. The package docstring's own example claimed otherwise, which is how it was found:
+  no lane ran doctests, so the front-page example had never been executed. One now does.
 - Host normalisation through the `idna` codec, the same transformation `socket.getaddrinfo`
   applies internally, so `http://①②⑦.0.0.1/` is refused as loopback before any lookup happens.
 - URLs containing a control character are refused rather than normalised, because `urlsplit`
@@ -73,8 +78,8 @@ All notable changes to this project are documented here. The format follows
   `httpcore.ConnectTimeout` only when every attempt timed out, and honours
   `max_connection_attempts` like the synchronous path.
 - `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
-  The last two are raised by layers not built yet; they exist now so that every current
-  `except SSRFGuardError` already covers them.
+  The last two were defined before the layers that raise them existed, so that every
+  `except SSRFGuardError` written against an earlier tree already covers them.
 - **The requests adapter.** `ssrfguard.requests.Session` is a `requests.Session` whose every
   connection resolves once, validates every answer and connects to one of the answers it
   validated — so redirects, retries and pool refills are covered by the seam rather than by
@@ -143,8 +148,9 @@ All notable changes to this project are documented here. The format follows
 - A relative `Location` resolves against the hostname URL, asserted rather than assumed. That is
   the failure the URL-rewrite approach to pinning has — a `Location: /admin` resolving against a
   rewritten address — and it is absent here because nothing rewrites a URL.
-- **One matrix over both adapters**, so the two seams cannot drift apart. Every guarantee that
-  is supposed to hold of this package rather than of one client is asserted once and runs twice:
+- **One matrix over all three client surfaces**, so the two seams cannot drift apart. Every
+  guarantee that is supposed to hold of this package rather than of one client is asserted
+  once and runs three times -- `requests`, `httpx` and `httpx` async:
   the pin, the `Host:` header, the TLS `server_name`, a certificate for another name, an
   untrusted chain, a denied address, scheme, port, credentials in the authority, a literal
   address, a pooled request, a fresh connection, the partial-block rule under both settings, and
@@ -234,4 +240,4 @@ All notable changes to this project are documented here. The format follows
   changes one fails the build instead of moving the answer silently. Twelve of the thirteen are
   addresses the strongest standard-library guard permits and this one refuses.
 
-Both client surfaces are built. There is no release.
+All three client surfaces are built. There is no release.

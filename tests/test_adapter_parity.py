@@ -1,4 +1,4 @@
-"""One matrix, both adapters, so the two seams cannot drift apart.
+"""One matrix, all three client surfaces, so the two seams cannot drift apart.
 
 httpx is pinned at ``httpcore``'s network backend and requests at ``urllib3``'s ``_new_conn``.
 The two share no code and nothing structural keeps them honest, so every guarantee that is

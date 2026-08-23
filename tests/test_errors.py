@@ -1,9 +1,11 @@
 """The exception hierarchy as a public surface.
 
-Two of these are raised by layers that are not built yet. They are defined and tested now
-because the hierarchy is what callers write `except` clauses against, and a class that arrives
-in a later release is a class every existing `except SSRFGuardError` already covers -- but only
-if it is in the tree from the start.
+All five are now raised by something. Two of them -- `ProxyUnsupportedError` and
+`TooManyRedirectsError` -- were defined and tested here before the layers that raise them
+existed, because the hierarchy is what callers write `except` clauses against, and a class that
+arrives in a later release is a class every existing `except SSRFGuardError` already covers only
+if it was in the tree from the start. The assertions below stayed the same when the adapters
+landed, which is the point of having written them early.
 
 An untested exception is one whose message nobody has read. These assert the whole message,
 because the message *is* the feature: a refusal a user cannot act on gets configured around.

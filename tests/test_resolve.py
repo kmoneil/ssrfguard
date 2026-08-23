@@ -4,7 +4,8 @@ Driven by a fake resolver rather than by the network. That is not a compromise -
 way to write the answers this layer has to handle: a name returning one public and one private
 address, a name whose answers are all internal, an IPv6 answer carrying a scope identifier. None
 of those can be arranged against a real resolver on demand, and the one thing a fake cannot show
-is that a *second* lookup does not happen, which is D-5's rebinding fixture and a different test.
+is that a *second* lookup does not happen. That needs a nameserver that changes its answer
+between two calls, which is `tests/rebind_dns.py` and a different test.
 """
 
 from __future__ import annotations
@@ -91,7 +92,7 @@ def test_duplicate_answers_are_collapsed() -> None:
 
 
 def test_a_name_resolving_both_ways_is_refused_whole() -> None:
-    """D-17, decided: an allowed address does not rescue a name whose other address is denied."""
+    """An allowed address does not rescue a name whose other address is denied."""
     resolver = answers(("1.1.1.1", 4), ("169.254.169.254", 4))
     with pytest.raises(BlockedAddressError) as caught:
         resolve(target(), policy=POLICY, resolver=resolver)
@@ -104,7 +105,7 @@ def test_a_name_resolving_both_ways_is_refused_whole() -> None:
 
 
 def test_an_explicitly_allowed_network_does_not_rescue_a_partially_denied_name() -> None:
-    """The decision D-17 records, asserted directly.
+    """The same rule from the other side, asserted directly.
 
     `allowed_networks` governs addresses. `on_partial_block` governs names. A user who allowed
     10.0.0.0/8 allowed a network, not a name that also points at the metadata endpoint -- and

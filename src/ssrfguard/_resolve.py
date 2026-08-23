@@ -42,8 +42,14 @@ ResolverAnswer = tuple[int, int, int, str, SockAddr]
 
 #: The shape of ``socket.getaddrinfo``. Accepted by :func:`resolve` so that tests can drive it
 #: without a network, and so that a caller who already has an answer -- from a resolver they
-#: trust, or from a fixture -- can supply it. **It is a trust boundary either way**: whatever
-#: this returns is validated before it is used, so a lying resolver buys nothing.
+#: trust, or from a fixture -- can supply it. **Every address it returns is validated before it
+#: is used**, so a resolver that lies about where a name points buys nothing.
+#:
+#: The *port* in the sockaddr is a narrower claim and is written out because the sentence above
+#: would otherwise be read as covering it. It is carried through as the resolver gave it, not
+#: re-checked against ``allowed_ports``. ``socket.getaddrinfo`` echoes the port it was handed,
+#: so the two can only disagree for a stand-in the caller installed themselves -- which makes
+#: this the caller's trust to place rather than a boundary this function defends.
 Resolver = Callable[..., Iterable[ResolverAnswer]]
 
 #: What a v4 sockaddr looks like, versus a v6 one. Named because the difference is the entire

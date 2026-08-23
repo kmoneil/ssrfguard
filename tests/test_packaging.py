@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import doctest
 import re
 import sys
 from pathlib import Path
@@ -108,3 +109,25 @@ def test_security_policy_exists() -> None:
     """Required for this package, not merely expected: it is what a reporter looks for first."""
     text = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert "@" in text, "SECURITY.md carries no disclosure address"
+
+
+def test_the_package_docstring_example_is_true() -> None:
+    """The front page of the package is code, so it is run rather than read.
+
+    Nothing else runs it: no lane passes `--doctest-modules`, and the example sat wrong for
+    several releases' worth of commits because of that -- it claimed the `<Target ...>` debug
+    form where a dataclass's generated `repr` was what actually came back. An example a reader
+    copies is documentation with a test-shaped hole in it unless something executes it.
+
+    `testmod` covers this module's own docstring and nothing else: the names re-exported here
+    belong to `ssrfguard._policy` and friends, so their `__module__` does not match and doctest
+    skips them. That keeps this free of the optional adapters, which is what lets it run on the
+    compatibility rows where neither client is installed.
+    """
+    results = doctest.testmod(
+        ssrfguard,
+        optionflags=doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL,
+        verbose=False,
+    )
+    assert results.attempted > 0, "the docstring stopped carrying an example, so this checks none"
+    assert results.failed == 0, f"{results.failed} of {results.attempted} docstring examples fail"
