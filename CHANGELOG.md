@@ -122,6 +122,17 @@ All notable changes to this project are documented here. The format follows
 - A relative `Location` resolves against the hostname URL, asserted rather than assumed. That is
   the failure the URL-rewrite approach to pinning has — a `Location: /admin` resolving against a
   rewritten address — and it is absent here because nothing rewrites a URL.
+- **One matrix over both adapters**, so the two seams cannot drift apart. Every guarantee that
+  is supposed to hold of this package rather than of one client is asserted once and runs twice:
+  the pin, the `Host:` header, the TLS `server_name`, a certificate for another name, an
+  untrusted chain, a denied address, scheme, port, credentials in the authority, a literal
+  address, a pooled request, a fresh connection, the partial-block rule under both settings, and
+  a network failure not arriving dressed as a policy refusal. Adding an adapter is a row rather
+  than a suite.
+- **The two asymmetries are a list rather than an assumption**, each with a test asserting it
+  still holds: a unix socket is refused only where one can be asked for (urllib3 has no such
+  path), and the low-level object is enough for requests but not for httpx (requests hands the
+  adapter the merged proxy mapping; httpx builds a second transport and never consults ours).
 
 ### Proven
 

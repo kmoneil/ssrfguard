@@ -1,20 +1,15 @@
-"""The httpx adapter, and the property that makes its seam the right one.
+"""The httpx adapter: what is true of *httpx* rather than of this package.
 
-httpcore hands the origin hostname to ``start_tls`` itself, a few lines after asking the network
-backend for a socket. So an adapter that only implements ``connect_tcp`` has no opportunity to
-verify a certificate against the address it pinned -- and the tests here are what turns that
-sentence into something checked. They read from the server: what the ``Host:`` header said, and
-what name the client offered in the TLS ``server_name`` extension.
+The guarantees this package makes are asserted once, against both adapters, in
+``tests/test_adapter_parity.py``. What is left here is the part that only means something for
+this seam.
 
-One assertion is about code rather than behaviour: the stream the backend returns is httpcore's
-own class. That is what keeps the argument true. A stream written here would carry a
-``server_hostname`` argument of its own, correct today and one careless edit from being an
-address; not having that line is the whole point.
-
-**Where the pin is proved and where it is not.** A resolver stand-in cannot demonstrate DNS
-rebinding -- that is done against a real nameserver in ``tests/test_rebinding.py``. What is
-demonstrated here is the property that matters for an adapter: httpcore's own connect path is
-never entered, asserted by making the function it would have used raise.
+Two things in particular. **The stream the backend returns is httpcore's own class** -- that is
+what keeps "this package cannot verify a certificate against the address it pinned" true, because
+a stream written here would carry a ``server_hostname`` argument of its own, correct today and
+one careless edit from being an address. And **the client factory**, which exists because a
+transport is not a client: httpx builds a second transport for an explicit ``proxy=`` and never
+consults ours, so the only place that can be refused is a class that owns its own construction.
 """
 
 from __future__ import annotations
@@ -169,41 +164,6 @@ def client_for(
 # ---------------------------------------------------------------------------------------------
 
 
-def test_the_request_reaches_the_address_that_was_validated(
-    server: RecordingServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A request goes out, arrives, and httpcore's own connect path is never entered.
-
-    ``socket.create_connection`` is the one call httpcore's stock backend makes and the one this
-    backend replaces. Made to raise for the duration, it turns "we believe the backend took"
-    into "if anything had fallen through to httpcore's own path, this test would fail".
-    """
-
-    def refuse(*_args: object, **_kwargs: object) -> socket.socket:
-        raise AssertionError("httpcore resolved and connected on its own; the seam was bypassed")
-
-    monkeypatch.setattr(socket, "create_connection", refuse)
-
-    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
-    with client_for(policy_for(server.port), resolver) as client:
-        response = client.get(f"http://pinned.test:{server.port}/asked")
-
-    assert response.status_code == 200
-    assert [r.path for r in server.received] == ["/asked"]
-    assert resolver.asked == ["pinned.test"]
-
-
-def test_the_host_header_is_the_hostname_and_not_the_pinned_address(
-    server: RecordingServer,
-) -> None:
-    """Nothing here rewrites the URL, so nothing downstream of it sees an address."""
-    resolver = Resolver(**{"vhost.test": "127.0.0.1"})
-    with client_for(policy_for(server.port), resolver) as client:
-        client.get(f"http://vhost.test:{server.port}/")
-
-    assert server.received[-1].host == f"vhost.test:{server.port}"
-
-
 def test_the_backend_returns_httpcores_own_stream(server: RecordingServer) -> None:
     """The TLS path stays httpcore's code, and this is what says so.
 
@@ -219,49 +179,6 @@ def test_the_backend_returns_httpcores_own_stream(server: RecordingServer) -> No
         assert type(stream) is SyncStream
     finally:
         stream.close()
-
-
-def test_a_second_request_reuses_the_connection_and_asks_nothing(
-    server: RecordingServer,
-) -> None:
-    """Pooling is not a hole: a reused connection was validated when it was opened."""
-    resolver = Resolver(**{"pooled.test": "127.0.0.1"})
-    with client_for(policy_for(server.port), resolver) as client:
-        client.get(f"http://pooled.test:{server.port}/one")
-        client.get(f"http://pooled.test:{server.port}/two")
-
-    assert [r.path for r in server.received] == ["/one", "/two"]
-    assert resolver.asked == ["pooled.test"], "the pooled connection was validated twice or none"
-
-
-def test_every_new_connection_is_validated_on_its_own_merits(server: RecordingServer) -> None:
-    """The record moves after the first request; the connection already open does not move, and
-    the next one is judged afresh."""
-    resolver = Resolver(**{"moving.test": "127.0.0.1"})
-    transport = SafeTransport(policy=policy_for(server.port), resolver=resolver)
-    with httpx.Client(transport=transport) as client:
-        client.get(f"http://moving.test:{server.port}/before")
-        resolver.answers["moving.test"] = METADATA
-        transport.close()  # drop the pool, so the next request has to open a connection
-
-        with pytest.raises(BlockedAddressError) as refusal:
-            client.get(f"http://moving.test:{server.port}/after")
-
-    assert refusal.value.address == METADATA
-    assert [r.path for r in server.received] == ["/before"]
-
-
-def test_a_denied_address_is_refused_before_a_socket_is_opened(server: RecordingServer) -> None:
-    """The name resolves to somewhere the policy refuses, so the request never leaves."""
-    resolver = Resolver(**{"metadata.test": METADATA})
-    with (
-        client_for(policy_for(server.port), resolver) as client,
-        pytest.raises(BlockedAddressError) as refusal,
-    ):
-        client.get(f"http://metadata.test:{server.port}/")
-
-    assert refusal.value.address == METADATA
-    assert server.received == []
 
 
 def test_a_refusal_is_not_dressed_as_a_transport_error(server: RecordingServer) -> None:
@@ -286,17 +203,6 @@ def test_a_refusal_is_not_dressed_as_a_transport_error(server: RecordingServer) 
 # ---------------------------------------------------------------------------------------------
 
 
-def test_the_port_is_checked_at_the_transport(server: RecordingServer) -> None:
-    """A port the policy does not allow never reaches the network."""
-    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
-    policy = Policy(allowed_ports=frozenset({server.port + 1}), allowed_networks=LOOPBACK)
-    with client_for(policy, resolver) as client, pytest.raises(BlockedURLError) as refusal:
-        client.get(f"http://pinned.test:{server.port}/")
-
-    assert "allowed_ports" in refusal.value.reason
-    assert server.received == []
-
-
 def test_the_port_is_checked_again_by_the_backend(server: RecordingServer) -> None:
     """A backend used with a pool of somebody else's assembling is still bound by the policy.
 
@@ -315,67 +221,9 @@ def test_the_port_is_checked_again_by_the_backend(server: RecordingServer) -> No
     assert resolver.asked == [], "the port was checked after the lookup rather than before it"
 
 
-def test_the_scheme_is_checked_at_the_transport(server: RecordingServer) -> None:
-    """A backend never learns the scheme, so the transport is where a scheme is decided."""
-    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
-    policy = policy_for(server.port, allowed_schemes=frozenset({"https"}))
-    with client_for(policy, resolver) as client, pytest.raises(BlockedURLError) as refusal:
-        client.get(f"http://pinned.test:{server.port}/")
-
-    assert "allowed_schemes" in refusal.value.reason
-
-
-def test_credentials_in_the_authority_are_refused(server: RecordingServer) -> None:
-    """httpx keeps userinfo in the request URL, so the transport can see it and refuse it.
-
-    ``http://trusted.example@127.0.0.1/`` reads as a hostname to a human and parses as one to
-    nobody, which is why the policy refuses credentials in an authority by default.
-    """
-    resolver = Resolver(**{"pinned.test": "127.0.0.1"})
-    with (
-        client_for(policy_for(server.port), resolver) as client,
-        pytest.raises(BlockedURLError) as refusal,
-    ):
-        client.get(f"http://user:secret@pinned.test:{server.port}/")
-
-    assert "allow_userinfo" in refusal.value.reason
-    assert server.received == []
-
-
-def test_a_literal_address_in_the_url_is_checked_too(server: RecordingServer) -> None:
-    """An IPv6 literal is refused as loopback without a socket being opened."""
-    with client_for(policy_for(server.port)) as client, pytest.raises(BlockedURLError) as refusal:
-        client.get(f"http://[::1]:{server.port}/")
-
-    assert "loopback" in refusal.value.reason.lower()
-
-
 # ---------------------------------------------------------------------------------------------
 # Failures that are the network's, not the policy's
 # ---------------------------------------------------------------------------------------------
-
-
-def test_a_name_that_does_not_resolve_fails_the_way_httpx_users_expect(
-    server: RecordingServer,
-) -> None:
-    """A DNS failure is not a policy decision and must not arrive dressed as one."""
-    with (
-        client_for(policy_for(server.port), Resolver()) as client,
-        pytest.raises(httpx.ConnectError),
-    ):
-        client.get(f"http://nowhere.test:{server.port}/")
-
-
-def test_a_refused_connection_fails_the_way_httpx_users_expect() -> None:
-    """So is a closed port."""
-    closed = socket.socket()
-    closed.bind(("127.0.0.1", 0))
-    port = int(closed.getsockname()[1])
-    closed.close()
-
-    resolver = Resolver(**{"closed.test": "127.0.0.1"})
-    with client_for(policy_for(port), resolver) as client, pytest.raises(httpx.ConnectError):
-        client.get(f"http://closed.test:{port}/")
 
 
 def test_a_timeout_arrives_as_httpxs_own_timeout(
@@ -405,75 +253,9 @@ def test_a_timeout_arrives_as_httpxs_own_timeout(
 # ---------------------------------------------------------------------------------------------
 
 
-def test_the_handshake_carries_the_hostname_and_not_the_pinned_address(
-    tls_server: RecordingServer, trusted: ssl.SSLContext
-) -> None:
-    """Read off the wire: the server was asked for ``right.test``, not for an address.
-
-    Python will not put an IP literal in the ``server_name`` extension, so a client pinned by
-    rewriting its origin would have sent no name at all.
-    """
-    resolver = Resolver(**{"right.test": "127.0.0.1"})
-    with client_for(policy_for(tls_server.port), resolver, verify=trusted) as client:
-        response = client.get(f"https://right.test:{tls_server.port}/tls")
-
-    assert response.status_code == 200
-    received = tls_server.received[-1]
-    assert received.sni == "right.test"
-    assert received.host == f"right.test:{tls_server.port}"
-
-
-def test_a_certificate_issued_to_another_name_is_still_refused(
-    tls_server: RecordingServer, trusted: ssl.SSLContext
-) -> None:
-    """Pinning must not buy a way past hostname verification."""
-    resolver = Resolver(**{"wrong.test": "127.0.0.1"})
-    with (
-        client_for(policy_for(tls_server.port), resolver, verify=trusted) as client,
-        pytest.raises(httpx.ConnectError) as refusal,
-    ):
-        client.get(f"https://wrong.test:{tls_server.port}/")
-
-    assert "Hostname mismatch" in str(refusal.value) or "wrong.test" in str(refusal.value)
-    assert tls_server.received == []
-
-
-def test_an_untrusted_authority_is_still_refused(tls_server: RecordingServer) -> None:
-    """And nothing about pinning loosens the chain check either."""
-    resolver = Resolver(**{"right.test": "127.0.0.1"})
-    with (
-        client_for(policy_for(tls_server.port), resolver) as client,
-        pytest.raises(httpx.ConnectError),
-    ):
-        client.get(f"https://right.test:{tls_server.port}/")
-
-    assert tls_server.received == []
-
-
 # ---------------------------------------------------------------------------------------------
 # Redirects
 # ---------------------------------------------------------------------------------------------
-
-
-def test_a_redirect_re_enters_the_seam(server: RecordingServer) -> None:
-    """httpx picks a transport per hop, so every hop is checked and every hop is pinned."""
-    resolver = Resolver(**{"hop.test": "127.0.0.1", "metadata.test": METADATA})
-    server.routes["/redirect"] = (
-        302,
-        {"Location": f"http://metadata.test:{server.port}/"},
-        b"",
-    )
-
-    transport = SafeTransport(policy=policy_for(server.port), resolver=resolver)
-    with (
-        httpx.Client(transport=transport, follow_redirects=True) as client,
-        pytest.raises(BlockedAddressError) as refusal,
-    ):
-        client.get(f"http://hop.test:{server.port}/redirect")
-
-    assert refusal.value.address == METADATA
-    assert [r.path for r in server.received] == ["/redirect"]
-    assert resolver.asked == ["hop.test", "metadata.test"]
 
 
 # ---------------------------------------------------------------------------------------------

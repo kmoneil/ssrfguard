@@ -19,18 +19,20 @@ class Resolver:
     """Answers from a dict, and records what it was asked.
 
     Attributes:
-        answers: Host to address. Writable while a test runs.
+        answers: Host to address, or to a list of them. Writable while a test runs.
         asked: Every host looked up, in order. The number that shows a second lookup did not
             happen.
     """
 
-    def __init__(self, **answers: str) -> None:
+    def __init__(self, **answers: str | list[str]) -> None:
         """Build the resolver.
 
         Args:
-            **answers: Host to address, as keyword arguments or a splatted dict.
+            **answers: Host to address, or to a list of addresses in the order they should be
+                served. A list is how the partial-block rule gets exercised: a name that answers
+                with one permitted and one denied address is the signature the rule is about.
         """
-        self.answers: dict[str, str] = dict(answers)
+        self.answers: dict[str, str | list[str]] = dict(answers)
         self.asked: list[str] = []
 
     def __call__(self, host: str, port: int, *_args: object) -> list[tuple]:
@@ -49,9 +51,14 @@ class Resolver:
                 does and is not a policy decision.
         """
         self.asked.append(host)
-        address = self.answers.get(host)
-        if address is None:
+        answer = self.answers.get(host)
+        if answer is None:
             raise socket.gaierror(socket.EAI_NONAME, f"{host}: no answer")
-        if ":" in address:
-            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0))]
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+        addresses = [answer] if isinstance(answer, str) else answer
+        rows: list[tuple] = []
+        for address in addresses:
+            if ":" in address:
+                rows.append((socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0)))
+            else:
+                rows.append((socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port)))
+        return rows
