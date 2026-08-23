@@ -21,10 +21,7 @@ drop a credential header that is a credential by convention rather than by speci
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Iterator
 
 import httpx
 import pytest
@@ -36,9 +33,8 @@ from ssrfguard import (
     Policy,
     TooManyRedirectsError,
 )
-from ssrfguard.httpx import Client
-from ssrfguard.requests import Session
 
+from .adapters_under_test import ADAPTER_IDS, ADAPTERS, Adapter
 from .loopback_http import RecordingServer
 from .stub_resolver import Resolver
 
@@ -48,50 +44,7 @@ LOOPBACK = ("127.0.0.0/8",)
 METADATA = "169.254.169.254"
 
 
-@dataclass(frozen=True)
-class Adapter:
-    """One client under test, behind the two things this file asks of it.
-
-    Attributes:
-        name: What the parameter id shows.
-        opened: Build a guarded client as a context manager.
-        fetch: Make one request, following redirects.
-    """
-
-    name: str
-    opened: Callable[[Policy, Resolver], Any]
-    fetch: Callable[..., Any]
-
-
-@contextmanager
-def _requests_client(policy: Policy, resolver: Resolver) -> Generator[Session, None, None]:
-    with Session(policy=policy, resolver=resolver) as session:
-        yield session
-
-
-@contextmanager
-def _httpx_client(policy: Policy, resolver: Resolver) -> Generator[Client, None, None]:
-    with Client(policy=policy, resolver=resolver) as client:
-        yield client
-
-
-ADAPTERS = (
-    Adapter(
-        name="requests",
-        opened=_requests_client,
-        fetch=lambda client, url, headers=None: client.get(url, headers=headers or {}),
-    ),
-    Adapter(
-        name="httpx",
-        opened=_httpx_client,
-        fetch=lambda client, url, headers=None: client.get(
-            url, headers=headers or {}, follow_redirects=True
-        ),
-    ),
-)
-
-
-@pytest.fixture(params=ADAPTERS, ids=[a.name for a in ADAPTERS])
+@pytest.fixture(params=ADAPTERS, ids=ADAPTER_IDS)
 def adapter(request: pytest.FixtureRequest) -> Adapter:
     """Each test in this file runs once per client.
 

@@ -299,6 +299,12 @@ ban-relative-imports = "parents"
 # public API is not possible, and not asserting them leaves the claims unchecked.
 "tests/test_httpx_adapter.py" = ["SLF001"]
 
+# The parity matrix asks httpx which transport a request would be routed to, which is the only
+# place the "an explicit proxy= builds a second transport" asymmetry is observable. Naming it in
+# a list of asymmetries and then not checking it would be the assumption this file exists to
+# replace.
+"tests/test_adapter_parity.py" = ["SLF001"]
+
 # ---------------------------------------------------------------------------
 # mypy -- stricter of the two type gates, scoped to shipped code
 # ---------------------------------------------------------------------------
