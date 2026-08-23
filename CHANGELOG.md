@@ -216,6 +216,14 @@ All notable changes to this project are documented here. The format follows
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
 
+- **The `socket_options` ordering asymmetry is documented and pinned rather than discovered.**
+  They are applied before connect on `Client` and after connect on `AsyncClient`, because anyio
+  owns socket creation on the asynchronous path — so `SO_SNDBUF` and `SO_RCVBUF` window scaling,
+  `TCP_FASTOPEN`, `SO_BINDTODEVICE` and `IP_TOS` on the SYN work on one and are silent no-ops on
+  the other. Reaching an unconnected socket there means writing the stream, and with it the
+  `server_hostname` line this seam exists in order not to have, so the asymmetry stands and is
+  now the third entry in the parity matrix's list. The existing tests asserted only that an
+  option *lands*, which is why this was invisible.
 - **The two failover loops share the message they raise, and the async one chains its cause.**
   `connect()` and the async backend implement the same rule — try in order, cap the attempts,
   say what was left untried — and the loops cannot merge because one drives a socket and the
