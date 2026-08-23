@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Reject files recorded as executable in the git INDEX.
 #
-# Index-based, not filesystem-based, on purpose: /workspace is a `fakeowner` mount that
-# reports every file as executable, so a `test -x` check fails on everything and teaches
-# people to skip the hook. Git's index mode is the thing that actually gets committed, and
-# it is what a reviewer on another machine will see.
+# Index-based, not filesystem-based, on purpose. A `test -x` check reports whatever the working
+# tree happens to say, which on some mounts is "everything is executable" -- a hook that fails on
+# every file is a hook people learn to skip. Git's index mode is the thing that actually gets
+# committed, and it is what a reviewer on another machine will see.
 #
-# The allowlist was reserved for the SSH_ASKPASS helper, which is exec'd by ssh(1) and cannot
-# work without the bit. It is still empty, and that is now a design outcome rather than a
-# pending task: `password=` shipped in 0.9 and writes its helper to a 0700 temporary directory
-# at connect time instead of shipping an executable. Nothing in the distribution needs the bit,
-# so no file needs an exception -- and there is no fixed path on disk for another process owned
-# by this user to find. Keep it empty unless something genuinely has to ship executable.
+# **The allowlist is empty and should stay empty.** This distribution is a library: a wheel of
+# `.py` files, a `py.typed` marker and a licence. Nothing in it is exec'd, so nothing in it needs
+# the bit, and an executable file arriving in the index is therefore a mistake rather than a
+# feature -- a stray `chmod` from a local experiment, or something that was never meant to ship.
+# Add an entry only if a file genuinely has to be executable in the distribution, and say why.
 set -euo pipefail
 
 ALLOWED=()

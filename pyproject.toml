@@ -126,7 +126,7 @@ include = [
 # `certifi`. That is more than this project's entire shipped surface, for something one lane
 # runs.
 #
-# There is a second reason here that gantry-sftp does not have: pip-audit pulls `requests` and
+# There is a second reason, particular to this package: pip-audit pulls `requests` and
 # `urllib3`, which are two of this package's *optional* adapters' dependencies. Installing the
 # audit group into the same environment as the `zero-deps` lane would make that lane's
 # "neither client is importable" precondition silently false. They stay in separate jobs.
@@ -234,7 +234,7 @@ select = [
   "ASYNC",      # async antipatterns
   "D",          # pydocstyle -- Google convention
   "ANN",        # annotations required
-  "FA",         # future annotations required -- load-bearing at the 3.9 floor
+  "FA",         # future annotations required -- see the note under [tool.mypy] on the floor
 ]
 ignore = [
   "D105",    # magic method docstrings

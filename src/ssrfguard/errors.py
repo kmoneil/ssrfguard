@@ -95,6 +95,12 @@ class TooManyRedirectsError(SSRFGuardError):
     a security control: it exists to stop loops, it is configurable independently, and a chain
     that stays under it still gets one policy evaluation per hop from us either way.
 
+    At ``max_redirects=0`` this is raised by a single redirect **response**, even when the caller
+    switched following off at the client -- both clients build the next request in order to
+    expose it, and the cap fires on the build rather than on the send. That is the honest reading
+    of a policy that permits no redirect, and it is asserted on all three client surfaces so it
+    cannot be "fixed" by somebody who did not know it was decided.
+
     Attributes:
         limit: The configured maximum.
         chain: The URLs walked, in order.

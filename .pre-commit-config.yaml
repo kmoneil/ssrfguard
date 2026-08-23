@@ -40,7 +40,13 @@ repos:
         require_serial: true
 
       # mypy and ty are both scoped to `src` by pyproject, and both are configured to check
-      # against the **3.9 floor's semantics** while running on the development interpreter.
+      # against the **floor's semantics** — `python_version = "3.10"` — while running on the
+      # development interpreter. That the floor is 3.10 is load-bearing here rather than
+      # incidental: mypy *refuses* `python_version = "3.9"` and warns rather than failing, so at
+      # the floor this project originally drafted, this hook would have checked nothing about
+      # the floor while appearing to. pyproject argues that at length; do not restate the number
+      # here, read it there.
+      #
       # Passing filenames would drag in tests/, which is deliberately exempt — so both run
       # project-wide and ignore the staged file list.
       - id: mypy
@@ -69,8 +75,8 @@ repos:
       # The three type checkers vendor different typeshed snapshots and only pyright's
       # currently carries some of the stdlib deprecations. Kept as a third gate for that
       # reason; see `pyrightconfig.deprecations.json`, which checks at the *newest* supported
-      # interpreter rather than the floor — an API deprecated in 3.12 is invisible to a 3.9
-      # typeshed.
+      # interpreter rather than at the floor — a typeshed pinned to the floor cannot see an API
+      # deprecated after it, which is the whole reason this gate has a configuration of its own.
       - id: deprecations
         name: no deprecated APIs (basedpyright, reportDeprecated)
         entry: .venv/bin/basedpyright -p pyrightconfig.deprecations.json

@@ -188,6 +188,14 @@ class Policy:
         max_redirects: How many hops a chain may take before it is refused. **Counted by this
             package rather than by the HTTP client**, whose own limit exists to stop loops, is
             an order of magnitude larger, and can be changed without touching the policy.
+
+            ``0`` means **a redirect is refused**, not "redirects are not followed", and the
+            difference shows at the boundary: a single ``302`` raises :class:`
+            ~ssrfguard.TooManyRedirectsError` even when the caller switched following off at the
+            client. Both clients build the next request in order to expose it -- httpx as
+            ``response.next_request``, requests as ``response.next`` -- and the cap fires on the
+            build. To receive a redirect without following it, leave this at its default and
+            switch following off at the call; to refuse one, set this to ``0``.
         max_connection_attempts: How many of a name's validated addresses to try before giving
             up. **This exists because ``timeout`` is per attempt and the answer count is not
             ours to choose.** A name whose authoritative server returns two hundred addresses,
