@@ -70,6 +70,27 @@ All notable changes to this project are documented here. The format follows
   applies — so `no_proxy` still means no proxy rather than a false refusal. `allow_proxy=True`
   accepts that enforcement has moved to the proxy. A connection asked to `CONNECT` refuses at
   the socket, where the host that would be pinned is the proxy rather than the target.
+- **The httpx adapter.** `ssrfguard.httpx.SafeTransport` is an `httpx.HTTPTransport` whose
+  connections resolve once, validate every answer and connect to one of the answers they
+  validated. `SafeBackend` is the seam itself, for a caller assembling an
+  `httpcore.ConnectionPool` of their own.
+- The seam is httpcore's network backend, which is handed a host and a port and returns a
+  stream. httpcore starts TLS itself, on the line after, with the origin hostname — so this
+  adapter has no opportunity to verify a certificate against the address it pinned. **The stream
+  it returns is httpcore's own class**, so even `start_tls` is httpcore's code rather than a copy
+  of it, and a `server_hostname` argument does not appear anywhere in this package.
+- The whole URL policy runs in `handle_request`, once per request rather than once per
+  connection, because a network backend never learns the scheme. The backend independently
+  checks the port and every address, so a pool built around it directly is still bound.
+- A unix socket is refused, at the transport when `uds=` is given and again at the backend, and
+  there is no flag to permit one: the question a policy answers has no meaning for a path in the
+  filesystem.
+- A proxy on the transport is refused unless the policy permits one, and permitting one leaves
+  httpx's own proxy pool in place — pinning the *proxy's* address while leaving the target
+  unchecked would be a guard reporting a decision it never made.
+- `connect()` now accepts every shape of `setsockopt` argument its clients can express,
+  including httpcore's four-element form, and applies each unchanged rather than taking it
+  apart and putting it back together.
 
 ### Proven
 
@@ -84,6 +105,12 @@ All notable changes to this project are documented here. The format follows
 - **Nothing in urllib3 resolves or connects behind the adapter.** Asserted by making
   `create_connection` — the one function urllib3 would look a name up in — raise for the
   duration of a request that then succeeds.
+- **Nothing in httpcore resolves or connects behind the adapter either.** `socket.create_connection`
+  — the one call httpcore's stock backend makes — is made to raise for the duration of a request
+  that then succeeds.
+- The TLS handshake carries the hostname, read from the server rather than from the client: a
+  server-side SNI callback records what the client offered, and Python will not put an IP literal
+  in `server_name`, so a name arriving there is the pinned address *not* having reached TLS.
 - **The seam this adapter did not take is measured and pinned.** urllib3's `.host` is a property
   over `_dns_host`, so writing the validated address into `_dns_host` writes it into `.host`,
   and `HTTPSConnection.connect` reads `server_hostname` from there. Against a loopback server
@@ -101,4 +128,5 @@ All notable changes to this project are documented here. The format follows
   changes one fails the build instead of moving the answer silently. Twelve of the thirteen are
   addresses the strongest standard-library guard permits and this one refuses.
 
-The httpx client is not built yet. There is no release.
+The httpx *client factory* is not built yet. The transport is, and a transport handed to
+`httpx.Client` is still bypassed by an explicit `proxy=`. There is no release.

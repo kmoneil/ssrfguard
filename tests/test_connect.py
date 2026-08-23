@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import socket
+import struct
 import threading
 from collections.abc import Iterator
 from ipaddress import ip_address
@@ -169,6 +170,21 @@ def test_socket_options_are_applied(listener: tuple[str, int]) -> None:
         [address_for(host, port)], policy=LOOPBACK_OK, timeout=5, socket_options=options
     ) as sock:
         assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+
+
+def test_a_socket_option_carrying_bytes_is_applied_too(listener: tuple[str, int]) -> None:
+    """`setsockopt` takes an int or a buffer, and both clients can express either.
+
+    The int form is the common one and the one above covers. This is here because the type this
+    accepts was widened to carry every shape httpcore and urllib3 can produce, and a widened
+    contract that nothing exercises is a widened contract nobody knows is wrong.
+    """
+    host, port = listener
+    options = [(socket.SOL_SOCKET, socket.SO_REUSEADDR, struct.pack("i", 1))]
+    with connect(
+        [address_for(host, port)], policy=LOOPBACK_OK, timeout=5, socket_options=options
+    ) as sock:
+        assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) != 0
 
 
 def test_a_source_address_is_bound(listener: tuple[str, int]) -> None:
