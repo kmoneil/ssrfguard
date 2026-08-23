@@ -284,6 +284,31 @@ jobs:
       - run: uv run --frozen python scripts/lanes.py leaks
 
   # ---------------------------------------------------------------------------
+  # What one URL costs. Reports rather than gates, because a threshold in
+  # microseconds is a threshold about this runner, so a number here could only
+  # ever be advisory. The gates live in `tests/test_cost.py` on the `fast` lane
+  # and none of them is an absolute duration: two compare a measurement to
+  # another taken on the same thread in the same run, and the third counts calls
+  # and holds no clock at all.
+  #
+  # `uv sync --frozen` without `--all-extras`, and that is not an oversight: this
+  # measures the policy layer, which is pure, has no client in it, and touches no
+  # network. Installing httpx and requests here would buy a slower job and change
+  # nothing it prints.
+  # ---------------------------------------------------------------------------
+  cost:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv python install
+      - run: uv sync --frozen
+      - run: uv run --frozen python scripts/lanes.py cost
+
+  # ---------------------------------------------------------------------------
   # Weekly and on demand. It cannot gate: `mutmut run` exits 0 whether or not
   # mutants survive, and no register of known-equivalent survivors is committed,
   # so there is nothing for a machine to diff a run against. `mutmut results` is

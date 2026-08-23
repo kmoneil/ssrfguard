@@ -238,6 +238,29 @@ LANES: tuple[Lane, ...] = (
         command=("pytest", "-m", "not egress", "-p", "ssrfguard_leakcheck"),
     ),
     Lane(
+        name="cost",
+        checks=(
+            "what one URL costs: the per-call price of `check_url` on every corpus shape, the "
+            "two ratios `tests/test_cost.py` gates on, and what importing the package adds to "
+            "starting an interpreter"
+        ),
+        needs=(
+            "uv sync --frozen. No extras and no network: this measures the policy layer, which "
+            "is pure and has no client in it"
+        ),
+        reports_only=(
+            "**a threshold in microseconds is a threshold about the runner**, and this one runs "
+            "on shared hardware, so a number here could only ever be advisory. What gates "
+            "instead is in `tests/test_cost.py`, on the `fast` lane, and none of it is an "
+            "absolute duration: "
+            "two assertions compare a measurement to another taken on the same thread in the "
+            "same run, which cancels the runner, and the third counts calls and holds no clock "
+            "at all. This lane prints the numbers a reader evaluating the package wants and a "
+            "ratio cannot give them"
+        ),
+        command=("python", "scripts/cost_report.py"),
+    ),
+    Lane(
         name="mutation",
         checks="whether the suite would notice if the policy logic were subtly wrong",
         needs="uv sync --frozen --all-extras",

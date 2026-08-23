@@ -253,6 +253,17 @@ All notable changes to this project are documented here. The format follows
   resolution rather than `BlockedURLError` at check time, so a caller that tells "the policy
   refused this" apart from "DNS could not find this", which is what a retry or a circuit breaker
   does, sees one class of input move between the two.
+- **A `cost` lane, and three cost assertions on the gating one.** Ten lanes gated ten things and
+  none of them was cost, in a package that states measured costs in three docstrings. None of the
+  new assertions is a stopwatch: a threshold in microseconds is a threshold about the runner. One
+  counts how many times `check_url` parses its host as an address. One measures that an 8 KiB URL
+  costs no more than 16x a 1 KiB one, which is the linearity `max_url_length` always rested on,
+  argued from the regex until now and measured since. One measures that the `idna` arm costs no
+  more than 30x the ASCII arm at the same URL length, which is the assertion that would have
+  caught the ceiling above: it read 251x before the host cap and reads 9 to 11x after. Both ratios
+  are taken on `time.thread_time_ns` in the same run, which is what makes them survive a shared
+  runner: measured under load, the same comparison on wall clock moved by 5x and on the thread
+  clock by 1%. The `cost` lane itself reports and does not gate.
 - **The `socket_options` ordering asymmetry is documented and pinned rather than discovered.**
   They are applied before connect on `Client` and after connect on `AsyncClient`, because anyio
   owns socket creation on the asynchronous path. So `SO_SNDBUF` and `SO_RCVBUF` window scaling,
