@@ -363,3 +363,63 @@ def test_the_refusal_is_one_this_packages_users_already_catch(
         adapter.fetch(client, f"http://first.test:{first.port}/loop")
 
     assert not isinstance(refusal.value, (requests.RequestException, httpx.HTTPError))
+
+
+def _get_without_following(adapter: Adapter, client: object, url: str) -> object:
+    """One request that must not follow a redirect, spelled the way each client spells it.
+
+    Args:
+        adapter: The client under test.
+        client: The opened client.
+        url: Where to send the request.
+
+    Returns:
+        The response.
+    """
+    if adapter.name == "requests":
+        return client.get(url, allow_redirects=False)  # type: ignore[attr-defined]
+    return client.get(url, follow_redirects=False)  # type: ignore[attr-defined]
+
+
+def test_a_policy_of_zero_refuses_a_redirect_it_was_never_going_to_follow(
+    adapter: Adapter, first: RecordingServer
+) -> None:
+    """The boundary, pinned because it is defensible *and* surprising.
+
+    `max_redirects=0` reads as "do not follow redirects" and means "a redirect is refused". Even
+    with following switched off at the call, a single 302 raises -- because both clients build
+    the next request in order to expose it (`response.next_request` on httpx,
+    `response.next` on requests) and the cap fires on the build rather than on the send.
+
+    **The two agree, so this is not a parity bug.** It is a semantic that would otherwise be
+    rediscovered and "fixed" by somebody who did not know it had been decided. A caller who wants
+    the 302 back leaves the cap alone and switches following off at the call, which the test
+    below this one is.
+    """
+    first.routes["/hop0"] = (302, {"Location": f"http://first.test:{first.port}/landed"}, b"")
+    first.routes["/landed"] = (200, {}, b"ok")
+    policy = policy_for(first, max_redirects=0)
+
+    with adapter.opened(policy, names()) as client, pytest.raises(TooManyRedirectsError):
+        _get_without_following(adapter, client, f"http://first.test:{first.port}/hop0")
+
+    assert [r.path for r in first.received] == ["/hop0"], "the hop must not have been sent"
+
+
+def test_a_redirect_comes_back_unfollowed_when_the_cap_permits_one(
+    adapter: Adapter, first: RecordingServer
+) -> None:
+    """The other half, and the one a caller actually wants.
+
+    With the cap left alone and following switched off at the call, the 302 is returned rather
+    than raised, and the hop is still not sent. This is the shape the sentence on
+    `Policy.max_redirects` points callers at, so it is asserted rather than described.
+    """
+    first.routes["/hop0"] = (302, {"Location": f"http://first.test:{first.port}/landed"}, b"")
+    first.routes["/landed"] = (200, {}, b"ok")
+
+    with adapter.opened(policy_for(first), names()) as client:
+        response = _get_without_following(adapter, client, f"http://first.test:{first.port}/hop0")
+
+    assert response.status_code == 302  # type: ignore[attr-defined]
+    assert [r.path for r in first.received] == ["/hop0"], "the hop must not have been sent"

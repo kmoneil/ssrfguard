@@ -216,6 +216,13 @@ All notable changes to this project are documented here. The format follows
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
 
+- **`max_redirects=0` means "a redirect is refused", not "redirects are not followed"**, and now
+  says so. At the boundary a single `302` raises even with following switched off at the call,
+  because both clients build the next request in order to expose it — `response.next_request` on
+  httpx, `response.next` on requests — and the cap fires on the build. The two agree, so this was
+  never a parity bug; it was a defensible semantic nobody had written down, which is exactly the
+  kind that gets "fixed" later by someone who did not know it was decided. Asserted on all three
+  client surfaces, along with the shape a caller who wants the `302` back should use.
 - **`Policy.max_url_length`, defaulting to 8192, bounds the string `check_url` will read.**
   It had no ceiling, and `SECURITY.md` says any way one request can consume wall-clock without
   one is in scope — so the two documents disagreed. Not a ReDoS: measured across four octaves,
