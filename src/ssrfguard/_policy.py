@@ -27,6 +27,7 @@ from typing import Literal
 from urllib.parse import SplitResult, urlsplit
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, IPAddress, IPNetwork
+from ssrfguard._registry import Block, Reach
 from ssrfguard.errors import BlockedAddressError, BlockedURLError
 
 __all__ = ["PartialBlock", "Policy", "Target"]
@@ -159,6 +160,22 @@ class Policy:
         allowed_networks: Networks that are permitted even when the table denies them.
             **Explicit allow beats deny**, so this is how an internal-services fetcher reaches
             the internal services it is meant to.
+
+            Two consequences of *beats* are worth knowing before writing an entry, because
+            neither is visible from the field name.
+
+            An entry **inside a translation prefix is refused at construction**. ``64:ff9b::/96``
+            reads as "let NAT64 through" and would mean "let anything through": it covers
+            ``64:ff9b::7f00:1`` and ``64:ff9b::a9fe:a9fe``, which are loopback and the metadata
+            endpoint behind a NAT64 gateway, and the allowlist is consulted before the table gets
+            to decode them. Allow the embedded IPv4 range instead. An entry that merely
+            *contains* a translation prefix -- ``::/0`` -- is honoured, because at that breadth
+            the caller asked for everything and is entitled to get it.
+
+            An entry does **not** carry across address families: ``10.0.0.0/8`` does not permit
+            ``::ffff:10.0.0.1``, because the check compares versions and the mapped form is
+            version 6. That direction over-denies, so it stands -- a caller who wants the mapped
+            form says so.
         allowed_ports: Ports a URL may name. The default pair is the one most callers want and
             the one most likely to be widened; the refusal names both the port and this field.
         allow_userinfo: Whether credentials may ride in the authority. Off by default: they leak
@@ -236,6 +253,52 @@ class Policy:
                 f"{self.max_connection_attempts}; a policy that permits no attempt can never "
                 f"connect to anything"
             )
+        self._reject_allowing_a_translation_prefix()
+
+    def _reject_allowing_a_translation_prefix(self) -> None:
+        """Refuse an ``allowed_networks`` entry that would permit an undecoded wrapper.
+
+        ``check_address`` consults ``allowed_networks`` first and returns on a hit, so the table
+        never gets the chance to decode. An entry *inside* a translated block therefore permits
+        every IPv4 destination embedded in it -- loopback and every metadata endpoint -- and
+        silently switches off the single most important row in the shipped table.
+
+        **The test is the table's own longest-prefix rule, and getting that wrong is how this
+        check produces false refusals.** The question is not "does this entry touch a translated
+        block" but "is a translated block what would *decide* these addresses". Two cases make
+        the difference concrete:
+
+        * ``::1/128`` sits inside ``::/96``, the deprecated IPv4-compatible wrapper -- but
+          ``::1/128`` has its own, more specific row, so the wrapper never decides it. Allowing
+          IPv6 loopback is an ordinary thing to do and refusing it would be a wrong deny.
+        * ``::/96`` itself has no more specific row covering the whole of it, so the wrapper
+          *is* the decider, and an entry for it permits ``::7f00:1`` undecoded.
+
+        An entry merely *containing* a wrapper -- ``::/0``, ``2000::/3`` -- is somebody painting
+        with a roller, and at that breadth "you get what is in it" is the honest reading rather
+        than a surprise. Refusing those would break the deliberate off-switch this class
+        documents, and a control with no off switch gets replaced by no control at all.
+
+        Refused here rather than at the address that needed it, which is where every other
+        unsatisfiable field in this class is refused: a typo in a configuration file should
+        surface on startup, not as a permit nobody noticed.
+
+        Raises:
+            ValueError: If an allowed network sits inside a block the table would have decoded.
+        """
+        for network in self.allowed_networks:
+            block = _deciding_block(self.denied_networks, network)
+            if block is not None and block.reach is Reach.TRANSLATED:
+                raise ValueError(
+                    f"allowed_networks contains {network}, which overlaps {block.network} "
+                    f"({block.name}, {block.rfc}) -- a prefix that carries an IPv4 destination "
+                    f"inside it. An explicit allow beats the denied table, so this would permit "
+                    f"every address embedded in that prefix without decoding any of them, "
+                    f"including loopback and the cloud metadata endpoints. To reach specific "
+                    f"internal hosts, allow the embedded IPv4 range instead; to turn address "
+                    f"filtering off, pass a denied_networks table that says so rather than an "
+                    f"allowed_networks entry wide enough to cover this"
+                )
 
     # -- addresses -------------------------------------------------------------------------
 
@@ -489,6 +552,47 @@ def _normalise(url: str, host: str) -> str:
         return host.encode("idna").decode("ascii").lower()
     except (UnicodeError, ValueError) as bad:
         raise BlockedURLError(url, f"host {host!r} is not a usable name: {bad}") from bad
+
+
+def _wholly_inside(inner: IPNetwork, outer: IPNetwork) -> bool:
+    """Whether one network is entirely contained in another, across the two families.
+
+    ``subnet_of`` raises on a mixed-version pair and cannot be typed across the union, so the
+    narrowing happens once here rather than at the call site. A mixed pair is ``False`` rather
+    than an error: two families that cannot contain each other is an answer, not a mistake.
+
+    Args:
+        inner: The network that might be contained.
+        outer: The network that might contain it.
+
+    Returns:
+        ``True`` if every address in ``inner`` is in ``outer``.
+    """
+    if isinstance(inner, IPv4Network) and isinstance(outer, IPv4Network):
+        return inner.subnet_of(outer)
+    if isinstance(inner, IPv6Network) and isinstance(outer, IPv6Network):
+        return inner.subnet_of(outer)
+    return False
+
+
+def _deciding_block(table: AddressTable, network: IPNetwork) -> Block | None:
+    """Find the block that decides every address in a network, if one block decides them all.
+
+    :meth:`AddressTable.match` answers this for a single address. A whole network needs the
+    stronger question -- the most specific block containing *all* of it -- because a block that
+    covers only part of a range is not what that range's other addresses resolve against.
+
+    Args:
+        table: The table to ask.
+        network: The network to look up.
+
+    Returns:
+        The most specific block containing the whole network, or ``None`` when no block does.
+    """
+    containing = [block for block in table.blocks if _wholly_inside(network, block.network)]
+    if not containing:
+        return None
+    return max(containing, key=lambda block: block.network.prefixlen)
 
 
 def _literal_address(host: str) -> IPAddress | None:
