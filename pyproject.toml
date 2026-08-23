@@ -285,6 +285,11 @@ ban-relative-imports = "parents"
 "tests/test_address_properties.py" = ["S104", "SLF001"]
 "tests/test_stdlib_drift.py" = ["S104"]
 
+# The encoding corpus is hostile input by construction and has to contain the thing it refuses:
+# a test that `0` is refused has to record that it decodes to 0.0.0.0, which is the address
+# S104 exists to flag. The rule stays armed everywhere else.
+"tests/test_encodings.py" = ["S104"]
+
 # **The `_dns_host` writes are this file's subject, not a shortcut around a public API.** Three
 # tests there drive urllib3 the way the requests adapter deliberately does not, to record what
 # that does to certificate verification. The whole finding is that the attribute is private,

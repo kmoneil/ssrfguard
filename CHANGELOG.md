@@ -133,6 +133,13 @@ All notable changes to this project are documented here. The format follows
   still holds: a unix socket is refused only where one can be asked for (urllib3 has no such
   path), and the low-level object is enough for requests but not for httpx (requests hands the
   adapter the merged proxy mapping; httpx builds a second transport and never consults ours).
+- **The encoding corpus.** Thirteen ways of writing 127.0.0.1 that are not `127.0.0.1` — octal,
+  decimal, hex, short form, a bare `0`, circled digits, the ideographic full stop U+3002, an
+  IPv4-mapped address, a trailing dot — each asserted refused, and each asserted against the
+  platform's own resolver so the half of the argument that belongs to `getaddrinfo` is pinned
+  rather than assumed. The corpus is split by *which* layer refuses each form, because four of
+  them are well-formed hostnames the URL layer has no business refusing: `0x7f.0.0.1` is caught
+  only after the resolver decodes it, and there is no code here that knows what hexadecimal is.
 
 ### Proven
 
