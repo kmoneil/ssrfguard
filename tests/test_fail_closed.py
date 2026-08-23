@@ -14,11 +14,12 @@ path nobody has run is a path nobody has proven closes.
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 from ipaddress import ip_address, ip_network
 
 import pytest
 
-from ssrfguard import DEFAULT_DENIED, AddressTable, Block, Reach
+from ssrfguard import DEFAULT_DENIED, AddressTable, Block, Policy, Reach
 from ssrfguard._registry import TABLE
 
 
@@ -120,3 +121,50 @@ def test_a_table_with_a_duplicate_network_is_refused_at_construction() -> None:
     )
     with pytest.raises(ValueError, match=re.escape("duplicate networks: 10.0.0.0/8")):
         AddressTable((*TABLE, duplicate))
+
+
+def test_the_shipped_table_cannot_be_edited_after_a_policy_holds_it() -> None:
+    """`DEFAULT_DENIED` is a module-level singleton and the default for every policy.
+
+    So a plain class here meant one assignment anywhere in a process changed what every policy in
+    it refused, retroactively and with nothing saying so. The class docstring always said users
+    should build their own rather than mutate this one; frozen is what makes that a property
+    instead of a request.
+    """
+    for attribute in ("blocks", "snapshot"):
+        with pytest.raises(FrozenInstanceError):
+            setattr(DEFAULT_DENIED, attribute, ())
+
+
+def test_the_index_cannot_drift_from_the_blocks_it_was_built_from() -> None:
+    """The quieter half, and the one that would actually have happened.
+
+    ``blocks`` is the attribute with the public-looking name; every lookup reads the index derived
+    from it. Appending to one without rebuilding the other left the table *reporting* a rule it
+    did not enforce -- which is this package's own failure mode, one layer down.
+    """
+    extra = Block(
+        network=ip_network("203.0.113.0/25"),
+        name="More specific than the shipped documentation block",
+        rfc="RFC5737",
+        reach=Reach.PERMITTED,
+    )
+    with pytest.raises(FrozenInstanceError):
+        DEFAULT_DENIED.blocks = (*DEFAULT_DENIED.blocks, extra)
+
+    # And the supported route still works: build a new table, and the index is built with it.
+    widened = _table_with(extra)
+    assert widened.match(ip_address("203.0.113.1")) is extra
+    assert DEFAULT_DENIED.match(ip_address("203.0.113.1")) is not extra
+
+
+def test_a_table_renders_as_a_count_rather_than_as_sixty_blocks() -> None:
+    """A policy carries a table, so the table's repr is inside every policy repr.
+
+    The dataclass default is eleven kilobytes of blocks, which is what would reach a log line, a
+    traceback and a REPL. Asserted rather than left to taste, because the generated form comes
+    back the moment somebody removes the override without knowing why it is there.
+    """
+    assert repr(DEFAULT_DENIED) == f"<AddressTable 60 blocks, registry {DEFAULT_DENIED.snapshot}>"
+    assert len(repr(Policy())) < 1000
+    assert repr(DEFAULT_DENIED) in repr(Policy())
