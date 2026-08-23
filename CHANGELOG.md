@@ -235,6 +235,30 @@ All notable changes to this project are documented here. The format follows
   Apache and IIS converge for a request line. `SECURITY.md` now also says plainly that the
   *response body* is the client's to bound and not this package's, which is the other half of
   that sentence and was left to inference.
+- **The async client resolves through a pool of its own rather than anyio's process-wide one.**
+  Moving `getaddrinfo` off the event loop fixed the failure where one hostile name froze every
+  task in the process. It did not remove the bound, because a thread blocked in `getaddrinfo`
+  cannot be cancelled, and the bound it left was **anyio's default `CapacityLimiter` of 40,
+  shared with every other caller on that event loop including the host application's own thread
+  work**. Measured with a stalling resolver: at 39 held lookups an unrelated request completes
+  immediately, and at 40 it does not complete at all. The two tests behind the claim in
+  `_resolve.py` exercised two.
+
+  Resolution now has a limiter of its own, sized from the pool's `max_connections` and
+  overridable with `resolver_slots` on `AsyncClient`, `AsyncSafeTransport` and `AsyncSafeBackend`.
+  Taking the pool's number is the point rather than a convenience: a resolver bound tighter than
+  the pool is a second queue nobody configured, and one that refuses to open connections the pool
+  was still willing to make. This cannot make a stalled lookup cancellable, because nothing can;
+  it keeps the blast radius inside the client and makes the number one somebody chose.
+
+  A test asserts all three halves of what that means, because only the three together say the
+  bound is a limit rather than an outage: one slot short of full a new name still resolves, with
+  every slot held a new name waits, and with every slot held a connection already in the pool
+  still serves. The note in `_resolve.py` now names the bound instead of implying there is none.
+
+  `resolver_slots` is spelled out on the async surfaces rather than routed through the shared
+  option table, because the synchronous `Client` shares that table and has no such argument: a
+  lookup on the synchronous path holds up the caller that made it and nobody else.
 - **`check_url` no longer parses its host as an address twice, or at all for a name.** It was
   40% of the check. `_check_host` parsed the host to find out whether the hostname rules applied,
   used the answer as a boolean and discarded it, and `check_url` then parsed the same string again

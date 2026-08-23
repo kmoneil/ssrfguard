@@ -18,15 +18,19 @@ assertion that the ticks happened.
 
 from __future__ import annotations
 
+import contextlib
 import socket
+import threading
 import time
 from collections.abc import Iterator
 
 import anyio
 import anyio.abc
 import httpcore
+import httpx
 import pytest
 
+import ssrfguard.httpx as ssrfguard_httpx
 from ssrfguard import BlockedAddressError, Policy
 from ssrfguard.errors import BlockedURLError, ProxyUnsupportedError
 from ssrfguard.httpx import AsyncClient, AsyncSafeBackend, AsyncSafeTransport, SafeTransport
@@ -492,3 +496,163 @@ async def test_a_refusal_among_timeouts_arrives_as_a_connect_error(
 
     with pytest.raises(httpcore.ConnectError):
         await backend.connect_tcp("mixed.test", dead, timeout=0.5)
+
+
+class Held(Resolver):
+    """A resolver that answers immediately for one name and never for the others.
+
+    The stand-in for a hostile authoritative server: `getaddrinfo` has no timeout and a thread
+    blocked in it cannot be cancelled, so a lookup that never returns holds its worker for as
+    long as the attacker cares to hold it.
+    """
+
+    def __init__(self, release: threading.Event, **hosts: str) -> None:
+        """Build the resolver.
+
+        Args:
+            release: Cleared while the test runs; set to let the held lookups finish so the
+                worker threads are not left blocked after the test.
+            **hosts: Name to address, as the base resolver takes them.
+        """
+        super().__init__(**hosts)
+        self._release = release
+
+    def __call__(self, host: str, port: int, *args: object) -> list[tuple]:
+        """Answer at once for `free.test`, and not at all for anything else.
+
+        Args:
+            host: The name to look up.
+            port: The port.
+            *args: The rest of `getaddrinfo`'s signature.
+
+        Returns:
+            The answer, once this lookup is allowed to return.
+        """
+        if not host.startswith("free"):
+            self._release.wait(HELD_LOOKUP_CEILING)
+        return super().__call__(host, port, *args)
+
+
+#: How long a held lookup waits before giving up on its own, so a failing assertion leaves no
+#: thread blocked for the rest of the session.
+HELD_LOOKUP_CEILING = 30.0
+
+#: How many slots the client under test gets. Small, because the property is about the boundary
+#: rather than about the number, and forty threads per assertion is a slow way to prove it.
+SLOTS = 3
+
+
+@pytest.mark.anyio
+async def test_held_lookups_bound_new_names_and_nothing_else(server: RecordingServer) -> None:
+    """The bound on the off-the-loop lookup, asserted at the edge where it starts to bite.
+
+    Resolving off the loop fixed the failure where **one** hostile name froze every task in the
+    process. It did not make a stalled lookup cancellable, because nothing can: `getaddrinfo`
+    has no timeout and the thread stays in it. So there is still a number at which held lookups
+    stop further connection setup, and the point of the client owning its own limiter is that
+    the number is this client's rather than a process-wide default shared with whatever else on
+    the loop reaches for a worker thread.
+
+    Three assertions, and they only mean anything together:
+
+    * one slot short of full, a new name resolves, so the limiter is not simply broken;
+    * every slot held, a new name waits, so the bound is real and is this client's;
+    * every slot held, a connection already in the pool still serves, so the bound is on
+      *lookups* and not on requests. That last one is the difference between a limit and an
+      outage, and it is the reason the second assertion is acceptable at all.
+    """
+    policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
+    release = threading.Event()
+    names = {f"held{i}.test": "127.0.0.1" for i in range(SLOTS)}
+    free = {"free-one.test": "127.0.0.1", "free-two.test": "127.0.0.1"}
+    resolver = Held(release, **names, **free)
+
+    try:
+        async with (
+            AsyncClient(policy=policy, resolver=resolver, resolver_slots=SLOTS) as client,
+            anyio.create_task_group() as tasks,
+        ):
+            for held in list(names)[: SLOTS - 1]:
+                tasks.start_soon(_hold, client, held, server.port)
+            await _settle()
+
+            with anyio.fail_after(5):
+                one_short = await client.get(f"http://free-one.test:{server.port}/a")
+
+            tasks.start_soon(_hold, client, list(names)[-1], server.port)
+            await _settle()
+
+            # A name nothing has resolved yet, so this needs a slot and there is none.
+            with anyio.move_on_after(1) as new_name:
+                await client.get(f"http://free-two.test:{server.port}/b")
+
+            # The same origin as `one_short`, whose connection is still in the pool, so this
+            # needs no lookup at all and the full resolver must not touch it.
+            with anyio.fail_after(5):
+                pooled = await client.get(f"http://free-one.test:{server.port}/c")
+
+            release.set()
+            tasks.cancel_scope.cancel()
+    finally:
+        release.set()
+
+    assert one_short.status_code == 200, "a slot was free and the request still did not go"
+    assert new_name.cancelled_caught, (
+        f"{SLOTS} held lookups filled every resolver slot and a request to an unresolved name "
+        f"still completed; the limiter is not the one this client was given"
+    )
+    assert pooled.status_code == 200, (
+        "a full resolver blocked a request over a connection that was already open, which "
+        "makes the bound an outage rather than a limit"
+    )
+
+
+async def _hold(client: AsyncClient, host: str, port: int) -> None:
+    """Start a request whose lookup will not return, and swallow whatever ends it.
+
+    Args:
+        client: The client to make it on.
+        host: The name whose lookup is held.
+        port: The server's port.
+    """
+    with contextlib.suppress(Exception):
+        await client.get(f"http://{host}:{port}/held")
+
+
+async def _settle() -> None:
+    """Give the started requests time to reach the resolver and take their slots."""
+    await anyio.sleep(0.3)
+
+
+@pytest.mark.parametrize("slots", [0, -1])
+def test_a_client_that_permits_no_lookup_is_refused_at_construction(slots: int) -> None:
+    """Refused where every other unsatisfiable setting in this package is refused.
+
+    A limiter of zero is a client that can never resolve anything, which is a configuration
+    error rather than a policy, and it should surface on startup rather than as a request that
+    waits forever with no explanation.
+    """
+    with pytest.raises(ValueError, match="resolver_slots must be at least 1"):
+        AsyncSafeBackend(policy=Policy(), resolver_slots=slots)
+
+
+@pytest.mark.parametrize(
+    ("max_connections", "requested", "expected"),
+    [
+        (25, None, 25),
+        (25, 4, 4),
+        (None, None, ssrfguard_httpx._RESOLVER_SLOTS),
+        (None, 4, 4),
+    ],
+)
+def test_the_resolver_takes_its_size_from_the_pool_unless_told_otherwise(
+    max_connections: int | None, requested: int | None, expected: int
+) -> None:
+    """The pool's own number wins over a default, and the caller's wins over both.
+
+    Deriving from `max_connections` is the part worth pinning: a resolver bound tighter than the
+    pool would start refusing to open connections the pool was still willing to make, which is a
+    second queue nobody configured and one that reads as a hang rather than as a limit.
+    """
+    limits = httpx.Limits(max_connections=max_connections)
+    assert ssrfguard_httpx._resolver_slots_for(limits, requested) == expected

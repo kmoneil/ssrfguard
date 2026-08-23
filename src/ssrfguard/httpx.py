@@ -129,6 +129,27 @@ _NO_UNIX_SOCKETS = (
 )
 
 
+#: How many name lookups an async client will have in flight at once, when its connection pool
+#: does not imply a smaller number.
+#:
+#: **The point of naming this is that it stops being anyio's.** ``anyio.to_thread.run_sync``
+#: defaults to a process-wide ``CapacityLimiter`` of 40 shared with every other caller on the
+#: event loop, including the host application's own thread work. ``getaddrinfo`` has no timeout
+#: and a thread blocked in it cannot be cancelled, so on that default a hostile authoritative
+#: server holding forty lookups stops *all* further connection setup in the process, and starves
+#: anything else that reaches for a worker thread. Measured, with a stalling resolver: at 39
+#: stalled lookups an unrelated request completes immediately, and at 40 it does not complete at
+#: all. Resolution therefore gets a limiter of its own, which cannot make a stall cancellable,
+#: because nothing can, but does keep the blast radius inside this client.
+#:
+#: 100 rather than 40, and only as the fallback: a transport prefers its pool's
+#: ``max_connections``, because a resolver bound tighter than the pool is a second queue nobody
+#: configured, and one that would begin refusing to start connections the pool was still willing
+#: to open. 100 is httpx's own default for that field, used here for the unbounded-pool case so
+#: the number is one a reader of httpx already recognises.
+_RESOLVER_SLOTS = 100
+
+
 def _origin_target(host: str, port: int) -> Target:
     """Record the origin httpcore is about to reach, in the form resolution wants.
 
@@ -421,6 +442,11 @@ class SafeTransport(httpx.HTTPTransport):
             socket_options: ``setsockopt`` triples applied to every connection. **When**
                 they are applied differs between the synchronous and asynchronous
                 clients, and it matters for some options. See the module docstring.
+            resolver_slots: How many name lookups may be in flight at once, or ``None`` to take
+                the number from ``limits.max_connections``. Defaulting to the pool's own figure
+                is the point: a resolver bound tighter than the pool is a second queue nobody
+                configured. See :data:`_RESOLVER_SLOTS`, which is only the fallback for a pool
+                with no limit at all.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.
@@ -776,16 +802,37 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         resolver: A stand-in for ``socket.getaddrinfo``. Whatever it returns is validated.
     """
 
-    def __init__(self, *, policy: Policy, resolver: Resolver | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        policy: Policy,
+        resolver: Resolver | None = None,
+        resolver_slots: int = _RESOLVER_SLOTS,
+    ) -> None:
         """Build the backend.
 
         Args:
             policy: What this backend is willing to reach.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
+            resolver_slots: How many lookups may be in flight at once. See
+                :data:`_RESOLVER_SLOTS` for why this exists and is not anyio's default.
+
+        Raises:
+            ValueError: If ``resolver_slots`` is below one, which is a client that can never
+                resolve anything.
         """
+        if resolver_slots < 1:
+            raise ValueError(
+                f"resolver_slots must be at least 1, got {resolver_slots}; a client that "
+                f"permits no lookup can never connect to anything"
+            )
         self.policy = policy
         self.resolver = resolver
+        # Built here rather than on first use: anyio returns a lazily-bound adapter when there is
+        # no event loop running, so this is safe to construct from ordinary synchronous code,
+        # which is where a client is usually built.
+        self._resolver_limiter = anyio.CapacityLimiter(resolver_slots)
 
     async def connect_tcp(
         self,
@@ -822,7 +869,8 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         target = _origin_target(host, port)
         lookup = functools.partial(resolve, target, policy=self.policy, resolver=self.resolver)
         try:
-            addresses = await anyio.to_thread.run_sync(lookup)
+            # **This client's limiter, not anyio's shared default.** See `_RESOLVER_SLOTS`.
+            addresses = await anyio.to_thread.run_sync(lookup, limiter=self._resolver_limiter)
         except socket.gaierror as unresolvable:
             raise httpcore.ConnectError(str(unresolvable)) from unresolvable
 
@@ -943,6 +991,24 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         await anyio.sleep(seconds)
 
 
+def _resolver_slots_for(limits: httpx.Limits, requested: int | None) -> int:
+    """Decide how many lookups may be in flight, preferring the pool's own number.
+
+    Args:
+        limits: The pool limits this transport was built with.
+        requested: What the caller asked for, or ``None`` to derive it.
+
+    Returns:
+        The number of slots. The caller's figure wins; otherwise the pool's ``max_connections``,
+        because a resolver bound tighter than the pool would start refusing to open connections
+        the pool was still willing to make; otherwise :data:`_RESOLVER_SLOTS`, for a pool that
+        declares no limit and therefore implies no number.
+    """
+    if requested is not None:
+        return requested
+    return _RESOLVER_SLOTS if limits.max_connections is None else limits.max_connections
+
+
 class AsyncSafeTransport(httpx.AsyncHTTPTransport):
     """An async httpx transport that connects only to addresses it validated.
 
@@ -971,6 +1037,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
         local_address: str | None = None,
         retries: int = 0,
         socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+        resolver_slots: int | None = None,
     ) -> None:
         """Build the transport.
 
@@ -991,6 +1058,11 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             socket_options: ``setsockopt`` triples applied to every connection. **When**
                 they are applied differs between the synchronous and asynchronous
                 clients, and it matters for some options. See the module docstring.
+            resolver_slots: How many name lookups may be in flight at once, or ``None`` to take
+                the number from ``limits.max_connections``. Defaulting to the pool's own figure
+                is the point: a resolver bound tighter than the pool is a second queue nobody
+                configured. See :data:`_RESOLVER_SLOTS`, which is only the fallback for a pool
+                with no limit at all.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.
@@ -1027,7 +1099,11 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             local_address=local_address,
             retries=retries,
             socket_options=socket_options,
-            network_backend=AsyncSafeBackend(policy=policy, resolver=resolver),
+            network_backend=AsyncSafeBackend(
+                policy=policy,
+                resolver=resolver,
+                resolver_slots=_resolver_slots_for(limits, resolver_slots),
+            ),
         )
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -1067,6 +1143,7 @@ class AsyncClient(httpx.AsyncClient):
         policy: Policy | None = None,
         resolver: Resolver | None = None,
         transport: AsyncSafeTransport | None = None,
+        resolver_slots: int | None = None,
         **options: object,
     ) -> None:
         """Build the client.
@@ -1075,6 +1152,11 @@ class AsyncClient(httpx.AsyncClient):
             policy: What this client is willing to reach. Required unless ``transport`` is given.
             resolver: A stand-in for ``socket.getaddrinfo``.
             transport: An already-built :class:`AsyncSafeTransport`.
+            resolver_slots: How many name lookups may be in flight at once, or ``None`` to take
+                the number from the pool's ``max_connections``. Spelled out here rather than
+                accepted through ``**options`` because the synchronous :class:`Client` shares
+                that routing table and its transport has no such argument: a lookup on the
+                synchronous path holds up the caller that made it and nobody else.
             **options: Everything ``httpx.AsyncClient`` accepts, plus the transport's own
                 ``local_address``, ``retries`` and ``socket_options``.
 
@@ -1093,7 +1175,12 @@ class AsyncClient(httpx.AsyncClient):
             raise ProxyUnsupportedError(configured)
 
         if transport is None:
-            transport = AsyncSafeTransport(policy=policy, resolver=resolver, **transport_options)
+            transport = AsyncSafeTransport(
+                policy=policy,
+                resolver=resolver,
+                resolver_slots=resolver_slots,
+                **transport_options,
+            )
         super().__init__(transport=transport, **client_options)
 
     def _build_redirect_request(

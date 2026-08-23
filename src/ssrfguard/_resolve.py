@@ -214,11 +214,21 @@ def resolve(
         **The two paths have different answers and one sentence covering both would be wrong for
         one of them.** On the synchronous path this is a known denial-of-service surface,
         documented in ``SECURITY.md`` as out of scope, and it is the caller's to supervise: a
-        stalled call holds up the caller that made it. On the asynchronous path it is not out of
-        scope, because a stalled call would hold up *every* task in the process, so
+        stalled call holds up the caller that made it and nobody else.
+
+        On the asynchronous path a stalled call would hold up *every* task in the process, so
         ``ssrfguard.httpx.AsyncClient`` never calls this on the event loop. It runs it in a
         worker thread, and a test asserts a concurrent task keeps being scheduled while a lookup
         blocks.
+
+        **That moves the bound rather than removing it, and the number is worth knowing.** A
+        thread blocked in ``getaddrinfo`` cannot be cancelled, so held lookups accumulate until
+        the client's resolver slots are gone, and past that point no *new* name can be resolved
+        until one returns. Connections already in the pool are unaffected, which is what keeps
+        this a limit rather than an outage. The client owns that pool of slots rather than
+        borrowing anyio's process-wide default, so the number is its own and a stall cannot
+        starve unrelated thread work elsewhere on the loop; see ``resolver_slots`` on
+        :class:`ssrfguard.httpx.AsyncClient`.
     """
     lookup = resolver if resolver is not None else socket.getaddrinfo
     flags = socket.AI_NUMERICHOST if target.is_literal_address else 0
