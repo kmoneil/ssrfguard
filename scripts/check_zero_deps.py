@@ -3,8 +3,8 @@
 ``tests/test_zero_deps.py`` reads the installed distribution's ``Requires-Dist`` and asserts
 every entry carries an ``extra ==`` marker. That is the right check and it runs everywhere, and
 it **cannot catch the failure that actually matters**: a development checkout has httpx and
-requests installed, so an adapter that imports its client at module scope -- instead of lazily,
-inside the function body -- passes every test in the suite while breaking the promise on the
+requests installed, so an adapter that imports its client at module scope, instead of lazily
+inside the function body, passes every test in the suite while breaking the promise on the
 front of the README for anyone who installs the bare package.
 
 Only an interpreter that does not have those clients can see that. This script builds the
@@ -12,7 +12,7 @@ wheel, installs it alone into a fresh environment, and asks three questions ther
 
 1. **Is the environment actually clean?** If httpx or requests is importable, everything below
    is vacuous. This is checked first and fails loudly, because a vacuous pass is worse than a
-   failure -- it is a green lane asserting nothing.
+   failure. It is a green lane asserting nothing.
 2. **Does the built METADATA declare an unconditional requirement?** Read off the artifact a
    user would download rather than off ``pyproject.toml``, because the build backend is what
    decides what lands there.
@@ -44,7 +44,7 @@ result = {"clients_present": [], "leaked": [], "requires": [], "import_error": N
 
 # **Metadata first, and before importing anything.** A package that declared a hard dependency
 # has it installed, so the clean-environment check below would fire and call the run "vacuous"
-# -- diagnosing a violation as broken infrastructure. Reading METADATA needs no import, so the
+# and diagnose a violation as broken infrastructure. Reading METADATA needs no import, so the
 # violation is named before anything can mask it.
 import importlib.metadata as md
 result["requires"] = list(md.requires("ssrfguard") or [])
@@ -215,7 +215,7 @@ def _contamination(result: dict[str, object]) -> str | None:
 
     A client is only contamination when *we* did not put it there. If the package declared a
     hard dependency, the client's presence is the violation rather than an obstacle to seeing
-    one -- and `_report` names it that way.
+    one, and `_report` names it that way.
 
     Args:
         result: The probe's result mapping.

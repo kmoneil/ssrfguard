@@ -1,17 +1,17 @@
 """The address table, transcribed from the IANA special-purpose registries.
 
-**Generated. Do not edit by hand** -- run `python scripts/refresh_registry.py`, which carries the
+**Generated. Do not edit by hand.** Run `python scripts/refresh_registry.py`, which carries the
 provenance, the transformation rules and the justification for every entry IANA does not supply.
 
 The point of this file is that it is *ours*. `ipaddress.is_private` and `ipaddress.is_global` are
 both wrong for this question, in opposite directions, and they are wrong differently on different
-patch releases of CPython -- so a guard built on them answers a question that changes underneath
+patch releases of CPython, so a guard built on them answers a question that changes underneath
 it. Measured examples, identical on 3.10, 3.11 and 3.13:
 
-    64:ff9b::7f00:1   is_private=False  is_global=True   -- 127.0.0.1 behind a NAT64 gateway
-    ff02::1           is_private=False  is_global=True   -- IPv6 all-nodes multicast
-    5f00::1           is_private=False  is_global=True   -- IANA says not globally reachable
-    100.64.0.1        is_private=False  is_global=False  -- CGNAT, which neither predicate denies
+    64:ff9b::7f00:1   is_private=False  is_global=True    # 127.0.0.1 behind a NAT64 gateway
+    ff02::1           is_private=False  is_global=True    # IPv6 all-nodes multicast
+    5f00::1           is_private=False  is_global=True    # IANA says not globally reachable
+    100.64.0.1        is_private=False  is_global=False   # CGNAT, which neither predicate denies
 
 The third line is not a CPython bug: IANA genuinely marks `64:ff9b::/96` globally reachable, and
 it is. `is_global` answers *is this address globally routable*; the question here is *where does
@@ -37,8 +37,8 @@ class Reach(enum.Enum):
     Attributes:
         DENIED: Refuse any address in this block.
         PERMITTED: Allow, overriding any enclosing denied block. IANA marks a handful of
-            special-purpose blocks globally reachable -- public anycast services, AS112, AMT --
-            and refusing those would be a denial with no security benefit behind it.
+            special-purpose blocks globally reachable, such as public anycast services, AS112
+            and AMT, and refusing those would be a denial with no security benefit behind it.
         TRANSLATED: The block carries an IPv4 destination inside it. Decode the embedded address
             and ask the question again about that, rather than answering about the wrapper.
     """
@@ -83,7 +83,7 @@ def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = "") -> Block:
     return Block(network=ip_network(cidr), name=name, rfc=rfc, reach=reach, note=note)
 
 
-#: Every block this package knows about, in no particular order -- lookup is by longest prefix,
+#: Every block this package knows about, in no particular order. Lookup is by longest prefix,
 #: so ordering here carries no meaning and must not be relied on.
 TABLE: tuple[Block, ...] = (
     # ---- IANA IPv4 Special-Purpose Address Registry ----
@@ -137,8 +137,8 @@ TABLE: tuple[Block, ...] = (
         "IPv4-IPv6 Translation",
         "RFC6052",
         Reach.TRANSLATED,
-        "IANA marks this globally reachable and is right about routing -- the prefix is public. "
-        "We decode anyway, because the question here is not whether the address is routable but "
+        "IANA marks this globally reachable and is right about routing: the prefix is public. We "
+        "decode anyway, because the question here is not whether the address is routable but "
         "where the packet ends up, and 64:ff9b::7f00:1 ends up at 127.0.0.1. This is the single "
         "most important departure in the table; a guard that trusts is_global permits it.",
     ),
@@ -151,9 +151,9 @@ TABLE: tuple[Block, ...] = (
         "TEREDO",
         "RFC4380, RFC8190",
         Reach.TRANSLATED,
-        "IANA answers N/A for the same reason as 6to4. Teredo carries two IPv4 addresses -- the "
-        "server in bits 32 to 64 and the client, bit-inverted, in the low 32 (RFC 4380 section 4) "
-        "-- and either being internal is disqualifying, so both are decoded.",
+        "IANA answers N/A for the same reason as 6to4. Teredo carries two IPv4 addresses: the "
+        "server in bits 32 to 64 and the client, bit-inverted, in the low 32 (RFC 4380 section "
+        "4). Either being internal is disqualifying, so both are decoded.",
     ),
     _b("2001:1::1/128", "Port Control Protocol Anycast", "RFC7723", Reach.PERMITTED),
     _b("2001:1::2/128", "Traversal Using Relays around NAT Anycast", "RFC8155", Reach.PERMITTED),
@@ -197,9 +197,10 @@ TABLE: tuple[Block, ...] = (
         "RFC4291",
         Reach.TRANSLATED,
         "Deprecated by RFC 4291 section 2.5.5.1 and removed from the registry, so a table built "
-        "from IANA alone permits it -- measured. It embeds an arbitrary IPv4 address in its low "
-        "32 bits, so ::7f00:1 reaches 127.0.0.1. The more specific ::1/128 and ::/128 entries win "
-        "on longest-prefix match, so loopback and unspecified keep their own names.",
+        "from IANA alone permits it, measured rather than assumed. It embeds an arbitrary IPv4 "
+        "address in its low 32 bits, so ::7f00:1 reaches 127.0.0.1. The more specific ::1/128 and "
+        "::/128 entries win on longest-prefix match, so loopback and unspecified keep their own "
+        "names.",
     ),
     _b(
         "224.0.0.0/4",
@@ -207,8 +208,8 @@ TABLE: tuple[Block, ...] = (
         "RFC5771",
         Reach.DENIED,
         "Multicast lives in its own IANA registry, so the special-purpose table does not carry it "
-        "and a table built from that alone permits 224.0.0.1 and 239.255.255.250 -- measured. A "
-        "fetcher has no reason to address a multicast group.",
+        "and a table built from that alone permits 224.0.0.1 and 239.255.255.250, measured rather "
+        "than assumed. A fetcher has no reason to address a multicast group.",
     ),
     _b(
         "ff00::/8",
@@ -223,8 +224,8 @@ TABLE: tuple[Block, ...] = (
         "Site-Local (deprecated)",
         "RFC3879",
         Reach.DENIED,
-        "Deprecated by RFC 3879 and removed from the registry, so IANA alone permits it -- and "
-        "the standard library reports is_global=True. It is an internal-addressing prefix by "
+        "Deprecated by RFC 3879 and removed from the registry, so IANA alone permits it, and the "
+        "standard library reports is_global=True. It is an internal-addressing prefix by "
         "construction.",
     ),
     # ---- Named only so a refusal can say what it refused ----
