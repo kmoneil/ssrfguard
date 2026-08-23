@@ -34,6 +34,7 @@ def test_the_defaults_are_the_ones_documented() -> None:
     assert policy.sensitive_headers == frozenset({"authorization", "proxy-authorization", "cookie"})
     assert policy.allow_proxy is False
     assert policy.allowed_networks == ()
+    assert policy.max_url_length == 8192
 
 
 def test_sensitive_header_names_are_normalised_rather_than_matched_case_sensitively() -> None:
@@ -85,6 +86,8 @@ def test_a_malformed_network_fails_at_construction_not_at_the_request() -> None:
         ({"max_redirects": -1}, "max_redirects must not be negative"),
         ({"max_connection_attempts": 0}, "max_connection_attempts must be at least 1"),
         ({"max_connection_attempts": -1}, "max_connection_attempts must be at least 1"),
+        ({"max_url_length": 0}, "max_url_length must be at least 1"),
+        ({"max_url_length": -1}, "max_url_length must be at least 1"),
     ],
 )
 def test_a_policy_that_cannot_mean_anything_is_refused(kwargs: dict, message: str) -> None:
@@ -251,3 +254,51 @@ def test_a_custom_table_with_no_translated_blocks_accepts_anything() -> None:
     policy = Policy(denied_networks=plain, allowed_networks=("64:ff9b::/96",))
 
     assert policy.permits_address("64:ff9b::7f00:1")
+
+
+def test_a_url_longer_than_the_policy_allows_is_refused_unread() -> None:
+    """`check_url` had no ceiling, and SECURITY.md says one request must not consume unbounded
+    wall-clock.
+
+    Not a ReDoS: measured across four octaves, both paths are strictly linear and `_HOSTNAME`
+    cannot backtrack, because every repetition in it must consume a literal dot. What it lacked
+    was a bound. The non-ASCII path costs about 1.9 microseconds per character -- the `idna`
+    codec runs nameprep per label -- so a 10MB URL was roughly 19 CPU-seconds of one worker.
+    """
+    policy = Policy()
+    url = "http://example.com/" + "a" * policy.max_url_length
+
+    with pytest.raises(BlockedURLError, match="is longer than max_url_length") as refusal:
+        policy.check_url(url)
+
+    assert str(policy.max_url_length) in refusal.value.reason
+    # The refused value is the length, not the URL. Echoing eight kilobytes of attacker-supplied
+    # text into a log line is the second half of the problem this check exists for.
+    assert refusal.value.url == f"<{len(url)} characters>"
+    assert "aaaa" not in str(refusal.value)
+
+
+def test_the_length_ceiling_is_checked_before_anything_reads_the_string() -> None:
+    """A ceiling applied after a full scan has already paid for what it meant to prevent.
+
+    Asserted through a URL that would fail *two* checks: it is over the limit and it contains a
+    control character. The length refusal is the one that must come back, because it is the one
+    that did not read the string to find out.
+    """
+    policy = Policy(max_url_length=32)
+
+    with pytest.raises(BlockedURLError) as refusal:
+        policy.check_url("http://example.com/\n" + "a" * 64)
+
+    assert "is longer than max_url_length" in refusal.value.reason
+    assert "control character" not in refusal.value.reason
+
+
+def test_the_ceiling_is_the_policys_number_and_an_ordinary_url_is_unaffected() -> None:
+    """A default that refused normal traffic would be a control that gets removed."""
+    assert Policy().check_url("https://example.com/a/b?c=d").host == "example.com"
+
+    narrow = Policy(max_url_length=25)
+    assert narrow.check_url("https://example.com/a/b").host == "example.com"
+    with pytest.raises(BlockedURLError, match="max_url_length \\(25\\)"):
+        narrow.check_url("https://example.com/a/b/c/d")

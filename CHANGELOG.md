@@ -216,6 +216,18 @@ All notable changes to this project are documented here. The format follows
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
 
+- **`Policy.max_url_length`, defaulting to 8192, bounds the string `check_url` will read.**
+  It had no ceiling, and `SECURITY.md` says any way one request can consume wall-clock without
+  one is in scope — so the two documents disagreed. Not a ReDoS: measured across four octaves,
+  both paths are strictly linear and `_HOSTNAME` cannot backtrack, because every repetition in it
+  must consume a literal dot. What it lacked was a bound. The non-ASCII path costs about 1.9
+  microseconds per character — the `idna` codec runs nameprep per label — so a 10MB URL was
+  roughly 19 CPU-seconds of one worker. Checked first, before anything that scans the string,
+  and the refusal quotes the length rather than the URL: echoing eight kilobytes of
+  attacker-supplied text into a log line is the second half of the problem. 8192 is where nginx,
+  Apache and IIS converge for a request line. `SECURITY.md` now also says plainly that the
+  *response body* is the client's to bound and not this package's, which is the other half of
+  that sentence and was left to inference.
 - **The `socket_options` ordering asymmetry is documented and pinned rather than discovered.**
   They are applied before connect on `Client` and after connect on `AsyncClient`, because anyio
   owns socket creation on the asynchronous path — so `SO_SNDBUF` and `SO_RCVBUF` window scaling,

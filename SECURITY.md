@@ -70,8 +70,17 @@ These are scope decisions with reasons, not deflections.
   **The exception is this one lookup, and the rest of the path is bounded on purpose.**
   Connection attempts are not a second instance of it: the connect timeout is per attempt, so a
   name answering with hundreds of permitted-but-blackholed addresses would multiply the caller's
-  timeout by a number the attacker picked. `Policy.max_connection_attempts` caps that. Any way
-  one request can consume attempts, sockets, memory or wall-clock without a ceiling is in scope.
+  timeout by a number the attacker picked. `Policy.max_connection_attempts` caps that, and
+  `Policy.max_url_length` caps the string handed to `check_url`, which is otherwise linear in a
+  length nobody bounded. Any way one request can consume attempts, sockets, memory or wall-clock
+  **inside this package** without a ceiling is in scope.
+
+  **The response body is not**, and the boundary is worth stating because the sentence above
+  would otherwise cover it. Once a permitted host is reached, what it sends back is the client's
+  to bound — `stream=True` and a read limit on requests, `client.stream()` on httpx — and this
+  package does not sit in that path. The README says the same thing in its own words. A report
+  that a permitted host can return a large body is not a finding here; a report that *this*
+  package holds memory or wall-clock without a ceiling is.
 
   **The asynchronous client is different, and a stall there would be in scope.** A lookup that
   blocked an event loop would freeze every unrelated request in the process rather than the one
