@@ -20,17 +20,17 @@
 # them and no test can read them. Recorded here because a guard nobody can find is one a future
 # change removes without noticing:
 #
-#   deployment branch policy : one pattern, `v*`, of type **tag** -- this is what refuses a
+#   deployment branch policy : one pattern, `v*`, of type **tag**. This is what refuses a
 #                              `workflow_dispatch` against a branch, at the environment gate,
 #                              before the publish step runs
-#   required reviewers       : kmoneil -- the human gate between the tag and the upload
+#   required reviewers       : kmoneil, the human gate between the tag and the upload
 #
 # Read them back with:
 #   gh api repos/kmoneil/ssrfguard/environments/pypi
 #   gh api repos/kmoneil/ssrfguard/environments/pypi/deployment-branch-policies
 #
-# The `publish` job restates the tag half as an `if:`. That restatement is not what enforces it
-# -- the environment is -- but the rule lives in settings where nothing can review it, and
+# The `publish` job restates the tag half as an `if:`. That restatement is not what enforces it,
+# because the environment is. But the rule lives in settings where nothing can review it, and
 # written out it is in the file the reader is holding.
 #
 # **Reserve the distribution name before the first real release.** `ssrfguard` was unclaimed on
@@ -50,8 +50,8 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate first. Publishing is the one irreversible step in this project -- a
-  # version number on PyPI cannot be reused, even after a delete -- so the full
+  # Gate first. Publishing is the one irreversible step in this project: a
+  # version number on PyPI cannot be reused, even after a delete. So the full
   # gating set runs against the tagged tree before anything is built for upload.
   #
   # **Every `uv` invocation here takes `--frozen`**, so the one lane that ends in
@@ -61,8 +61,8 @@ jobs:
   #
   # `zero-deps` runs here and it is the lane that matters most at this moment.
   # It is the only one that reads the artifact a user would actually download,
-  # and the promise it checks -- that installing this package installs nothing
-  # else -- is the promise a published version cannot take back.
+  # and the promise it checks, that installing this package installs nothing
+  # else, is the promise a published version cannot take back.
   # ---------------------------------------------------------------------------
   verify:
     runs-on: ubuntu-latest
@@ -93,9 +93,9 @@ jobs:
   # The default is what it looks like: PEP 517 resolves `[build-system] requires`
   # fresh from PyPI into a throwaway environment, so the backend that *produces*
   # the artifact would be the last thing in this path arriving unpinned and
-  # unhashed. With the group synced it comes from `uv.lock` like everything else
-  # -- which, for a package whose whole argument is about what a user ends up
-  # installing, is not a detail we get to wave through.
+  # unhashed. With the group synced it comes from `uv.lock` like everything
+  # else, which for a package whose whole argument is about what a user ends up
+  # installing is not a detail we get to wave through.
   # ---------------------------------------------------------------------------
   build:
     needs: verify
@@ -114,7 +114,7 @@ jobs:
       - name: Refuse a tag that disagrees with the packaged version
         # The version is single-sourced from `src/ssrfguard/__init__.py`, so a `v0.2.0` tag on a
         # tree that still says `0.1.0` would publish 0.1.0 a second time and fail at the upload
-        # -- after everything had passed, which reads as an infrastructure problem. Caught here
+        # after everything had passed, which reads as an infrastructure problem. Caught here
         # instead, where the message names the actual mistake.
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -205,9 +205,9 @@ jobs:
   # not.
   #
   # The notes come out of `CHANGELOG.md` rather than being written again. The
-  # changelog already has to carry a section for this version -- `build` refuses
-  # the tag otherwise -- so a second hand-maintained copy would be a second place
-  # to forget.
+  # changelog already has to carry a section for this version, because `build`
+  # refuses the tag otherwise, so a second hand-maintained copy would be a
+  # second place to forget.
   #
   # `contents: write` is granted here and nowhere else in this file.
   # ---------------------------------------------------------------------------

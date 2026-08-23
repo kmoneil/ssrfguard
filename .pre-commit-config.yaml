@@ -40,14 +40,14 @@ repos:
         require_serial: true
 
       # mypy and ty are both scoped to `src` by pyproject, and both are configured to check
-      # against the **floor's semantics** -- `python_version = "3.10"` -- while running on the
+      # against the **floor's semantics**, `python_version = "3.10"`, while running on the
       # development interpreter. That the floor is 3.10 is load-bearing here rather than
       # incidental: mypy *refuses* `python_version = "3.9"` and warns rather than failing, so at
       # the floor this project originally drafted, this hook would have checked nothing about
       # the floor while appearing to. pyproject argues that at length; do not restate the number
       # here, read it there.
       #
-      # Passing filenames would drag in tests/, which is deliberately exempt -- so both run
+      # Passing filenames would drag in tests/, which is deliberately exempt, so both run
       # project-wide and ignore the staged file list.
       - id: mypy
         name: mypy --strict (src)
@@ -75,7 +75,7 @@ repos:
       # The three type checkers vendor different typeshed snapshots and only pyright's
       # currently carries some of the stdlib deprecations. Kept as a third gate for that
       # reason; see `pyrightconfig.deprecations.json`, which checks at the *newest* supported
-      # interpreter rather than at the floor -- a typeshed pinned to the floor cannot see an API
+      # interpreter rather than at the floor. A typeshed pinned to the floor cannot see an API
       # deprecated after it, which is the whole reason this gate has a configuration of its own.
       - id: deprecations
         name: no deprecated APIs (basedpyright, reportDeprecated)
@@ -84,8 +84,8 @@ repos:
         types: [python]
         pass_filenames: false
 
-      # `UV_CACHE_DIR` is relative so it resolves against the repository root -- pre-commit runs
-      # hooks from there. An absolute path here would be an environment-specific fact baked
+      # `UV_CACHE_DIR` is relative so it resolves against the repository root, and pre-commit
+      # runs hooks from there. An absolute path here would be an environment-specific fact baked
       # into a committed file, which fails on the first runner that does not have it.
       - id: uv-lock
         name: uv lock is in sync with pyproject
@@ -107,7 +107,7 @@ repos:
       #
       # The baseline holds one entry and it was read before it was written:
       # `http://user:pass@example.com/` in `tests/test_policy_urls.py`, which is a fixture
-      # proving the policy refuses credentials in a URL authority -- a test of that has to
+      # proving the policy refuses credentials in a URL authority. A test of that has to
       # contain the thing it searches for. No real credential is in it.
       #
       # The baseline is keyed by (file, hashed secret, line) rather than being a file-level
@@ -120,7 +120,7 @@ repos:
       # Every update after that is the `--baseline` form:
       #     .venv/bin/detect-secrets scan --baseline .secrets.baseline
       # The redirect form on an *existing* baseline rebuilds it from scratch and drops the
-      # `filters_used` block it had accumulated -- including
+      # `filters_used` block it had accumulated, including
       # `detect_secrets.filters.common.is_baseline_file`, which is what stops the baseline
       # being scanned as evidence of itself. `--baseline` on a file that does not exist yet is
       # rejected outright, which is why creation cannot use it. Read the diff rather than
@@ -135,7 +135,7 @@ repos:
       #
       # **Invoked through the lane runner rather than spelling out a pytest command**, which is
       # the same rule `ci.yml` follows and for the same reason: two spellings of "run the tests"
-      # drift, and this one had already drifted -- it ran without the coverage floor that the
+      # drift, and this one had already drifted: it ran without the coverage floor that the
       # `fast` lane gates on, so a change could pass pre-push and fail CI.
       - id: pytest
         name: fast lane (unit, no egress, coverage floor)

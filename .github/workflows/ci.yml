@@ -32,7 +32,7 @@ on:
         default: all
         options: [all, none, mutation]
   schedule:
-    # Weekly, for the lanes too slow to run per-change -- and for `audit`, which is the one lane
+    # Weekly, for the lanes too slow to run per-change, and for `audit`, which is the one lane
     # whose value is mostly in this trigger: an advisory is published against code that has not
     # changed, so a lane that only ran per change would find it whenever somebody next happened
     # to edit something.
@@ -72,7 +72,7 @@ jobs:
   # **Deliberately not `uv sync`.** This lane builds the wheel and installs it
   # alone into a fresh environment, because the failure it exists to catch --
   # an adapter importing httpx at module scope instead of inside the function
-  # body -- is invisible to every other lane here. All of them have both clients
+  # body, is invisible to every other lane here. All of them have both clients
   # installed, so the eager import succeeds and nothing fails. Only an
   # interpreter without them can see it.
   #
@@ -94,8 +94,8 @@ jobs:
   # The unit suite on the development interpreter, both extras present, on both
   # platforms. macOS is here rather than for completeness: it resolves
   # `localhost` to `::1` first where most Linux images resolve to `127.0.0.1`
-  # first, and the partial-block rule -- a name resolving to both a public and a
-  # private address is refused whole -- is decided by exactly that ordering. A
+  # first, and the partial-block rule is decided by exactly that ordering: a
+  # name resolving to both a public and a private address is refused whole. A
   # guard tested on one address family is a guard tested on half of what it will
   # meet.
   # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ jobs:
   # on Python to catch syntax and API drift. This one matrices because the
   # answer it computes differs by interpreter: CVE-2024-4032 moved `ipaddress`'s
   # idea of which addresses are private, and `is_global` still returns True for
-  # `64:ff9b::7f00:1` -- a NAT64 address a gateway translates to 127.0.0.1 -- on
+  # `64:ff9b::7f00:1`, a NAT64 address a gateway translates to 127.0.0.1, on
   # every version. That is why this package ships its own address table, and the
   # assertions pinning it against the standard library's only mean something
   # when they run on more than one interpreter.
@@ -131,8 +131,8 @@ jobs:
   # for `python_version >= '3.13'` so the toolchain is not dragged back to the
   # floor to serve a promise that is only about `src/`. Each row therefore
   # builds its own environment, resolved for its own interpreter. The extras are
-  # not installed here -- httpx and requests have their own floors and their own
-  # matrix in `adapters`; this row is about the library and the standard library.
+  # not installed here, because httpx and requests have their own floors and
+  # their own matrix in `adapters`; this row is about the library and the standard library.
   # ---------------------------------------------------------------------------
   compat:
     timeout-minutes: 20
@@ -151,7 +151,7 @@ jobs:
       - run: uv pip install --python .venv-compat/bin/python -e . pytest hypothesis
         # Invoked with the matrix row's own interpreter. `scripts/lanes.py` resolves a lane's
         # tool from the directory beside `sys.executable` before it looks at `.venv/`, which is
-        # what makes this pick that row's pytest rather than the development one -- see the
+        # what makes this pick that row's pytest rather than the development one. See the
         # note on `_resolve`.
       - run: .venv-compat/bin/python scripts/lanes.py compat
 
@@ -160,7 +160,7 @@ jobs:
   #
   # A resolver fixture that changes its answer between the validation call and
   # the connect call, asserting the connection lands on the pinned first answer.
-  # It needs no network and no privileges -- just a UDP socket on loopback -- but
+  # It needs no network and no privileges, just a UDP socket on loopback, but
   # a hardened container can refuse the bind, and the probe below turns that
   # into a red job rather than a green one with the interesting rows skipped.
   # ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Both seams against one shared matrix, so httpx and requests cannot drift
-  # apart -- including the assertion neither of them may ever fail: the TLS
+  # apart, including the assertion neither of them may ever fail: the TLS
   # `server_hostname` is the hostname, never the pinned IP. Passing an IP there
   # silently disables certificate hostname verification, which trades an SSRF
   # hole for a worse one.
@@ -247,11 +247,11 @@ jobs:
   # verified rather than asserted.
   #
   # Its own job rather than a step on `gates`, because pip-audit pulls
-  # `requests` and `urllib3` -- two of this package's optional adapters'
+  # `requests` and `urllib3`, two of this package's optional adapters'
   # dependencies. Installing it alongside `zero-deps` would make that lane's
   # "neither client is importable" precondition silently false.
   #
-  # Not behind an `if:` -- per change *and* weekly, for the reason in the
+  # Not behind an `if:`. It runs per change *and* weekly, for the reason in the
   # `schedule:` comment above.
   # ---------------------------------------------------------------------------
   audit:

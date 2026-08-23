@@ -18,7 +18,7 @@ readme = "README.md"
 #     a seam nobody measured.
 #   - `pytest` caps at 8.4.2 and `hypothesis` at 6.141.1, so the compatibility row runs a frozen
 #     toolchain that will drift further every month.
-#   - **mypy refuses `python_version = "3.9"` outright** -- and warns rather than failing, so the
+#   - **mypy refuses `python_version = "3.9"` outright**, and warns rather than failing, so the
 #     type gate silently checks nothing about the floor while appearing to. At 3.10 it works,
 #     which restores a gate that a 3.9 floor leaves disarmed.
 #
@@ -26,7 +26,7 @@ readme = "README.md"
 #
 # Vendor support, which is what the original argument was really reaching for, is intact at
 # 3.10: Ubuntu 22.04 LTS ships it and is supported into 2027 (2032 with ESM). Upstream security
-# support ends 2026-10, which is soon -- **review this floor then** rather than treating it as
+# support ends 2026-10, which is soon, so **review this floor then** rather than treating it as
 # settled. 3.11 is the alternative and costs Ubuntu 22.04.
 #
 # The cost is still paid in `src`: no `typing.Self`, no `ExceptionGroup`, and
@@ -64,13 +64,13 @@ classifiers = [
 dependencies = []
 
 # Client adapters. Each imports its client **lazily, inside the function or class body**, so
-# `import ssrfguard` never touches httpx or requests -- proved by the `zero-deps` lane, which
+# `import ssrfguard` never touches httpx or requests. Proved by the `zero-deps` lane, which
 # imports the package in an interpreter where neither is installed and fails if either appears
 # in `sys.modules`.
 #
 # The floors are the versions the seams were verified against, not the oldest that might work.
-# Both adapters reach into client internals -- `httpcore.NetworkBackend.connect_tcp` and
-# `urllib3.connection.HTTPConnection._new_conn` -- because that is what pinning requires: the
+# Both adapters reach into client internals, `httpcore.NetworkBackend.connect_tcp` and
+# `urllib3.connection.HTTPConnection._new_conn`, because that is what pinning requires: the
 # address has to be chosen at the moment the socket is created, and neither client exposes a
 # public hook there. Reaching into a private surface is only defensible against a version
 # somebody actually read, so a claim about an untested older release would be a guess wearing a
@@ -106,8 +106,8 @@ packages = ["src/ssrfguard"]
 # "everything git does not ignore", which is the whole working tree.
 #
 # `tests/` stays in, for downstream packagers: Debian, Fedora and conda-forge rebuild from the
-# sdist and run the suite to validate the build. For this package that matters more than usual
-# -- the suite *is* the security argument, and a distribution that ships the code without the
+# sdist and run the suite to validate the build. For this package that matters more than usual,
+# because the suite *is* the security argument, and a distribution that ships the code without the
 # corpus that proves it is shipping an unverifiable claim.
 [tool.hatch.build.targets.sdist]
 include = [
@@ -122,7 +122,7 @@ include = [
 
 [dependency-groups]
 # `audit` is `scripts/audit_deps.py`'s tool, and it is its own group because pip-audit costs
-# roughly 18 packages over a default `uv sync` -- among them `requests`, `urllib3` and
+# roughly 18 packages over a default `uv sync`, among them `requests`, `urllib3` and
 # `certifi`. That is more than this project's entire shipped surface, for something one lane
 # runs.
 #
@@ -137,7 +137,7 @@ audit = [
 #
 # `[build-system] requires` is the one dependency declaration in this file that `uv.lock` does
 # not cover: PEP 517 build requirements are resolved fresh, from PyPI, into an isolated
-# environment every time anything builds this project -- so the code that produces the artifact
+# environment every time anything builds this project, so the code that produces the artifact
 # users install is the last unpinned, unhashed thing in the release path. `release.yml` syncs
 # this group and builds with `--no-build-isolation`, which makes hatchling arrive hashed from
 # the lock. `tests/test_packaging.py` asserts this group agrees with `[build-system] requires`.
@@ -146,7 +146,7 @@ build = [
 ]
 # httpx and requests are in `dev` rather than in groups of their own, and that is the opposite
 # call from `audit` above. They have to be installed for the adapter suites to run rather than
-# skip, which is what the Definition of Done asks for a shipped surface -- and the `zero-deps`
+# skip, which is what the Definition of Done asks for a shipped surface, and the `zero-deps`
 # lane exists precisely so that having them here cannot hide an eager import.
 dev = [
   "httpx>=0.28.1",
@@ -164,9 +164,9 @@ dev = [
   "basedpyright>=1.39.9",
   "detect-secrets>=1.5.0",
   # A test-only certificate authority. Three of the adapter assertions exist only during a real
-  # TLS handshake -- the name in `server_name` is the hostname, the `Host:` header is the
+  # TLS handshake: the name in `server_name` is the hostname, the `Host:` header is the
   # hostname, and a certificate issued to some other name is still refused while the address is
-  # pinned -- and none of them can be made against a client that never shook hands with
+  # pinned. None of them can be made against a client that never shook hands with
   # anything. The alternative is committing a key pair, which expires, and which puts a private
   # key in the repository of a security library.
   "trustme>=1.2",
@@ -181,7 +181,7 @@ dev = [
 # **The lock is resolved for the developer's interpreter, not for the 3.9 floor.**
 #
 # Without this, `uv` resolves `dev` for the whole `requires-python` range, so every tool above
-# is pinned to its newest 3.9-compatible release -- which drags ruff, mypy and ty years
+# is pinned to its newest 3.9-compatible release, which drags ruff, mypy and ty years
 # backwards to serve a floor that only the *shipped* code has to meet. The floor is a promise
 # about `src/`, not about the toolchain.
 #
@@ -197,13 +197,13 @@ environments = ["python_version >= '3.13'"]
 [tool.ruff]
 line-length = 100
 # **Explicit, rather than relying on `.gitignore`.** Ruff honours ignore files only inside a
-# git repository, so a fresh clone-less checkout -- or a sandbox where `git init` has not run --
+# git repository, so a fresh clone-less checkout, or a sandbox where `git init` has not run,
 # scans `.uv-cache/`, which is 97,000 findings in somebody else's code and makes the gate
 # useless before it has said anything about ours. Measured, not feared: that is exactly what
 # the first run in this tree did.
 extend-exclude = [".uv-cache", ".venv-compat", "_plans", "_tmp", "mutants"]
 # The floor, not the development interpreter: this is what stops 3.11+ syntax reaching `src/`,
-# and it is the only gate that can -- mypy's `python_version` checks semantics, not syntax.
+# and it is the only gate that can, since mypy's `python_version` checks semantics, not syntax.
 target-version = "py310"
 src = ["src", "tests"]
 
@@ -217,7 +217,7 @@ select = [
   "B",          # bugbear
   "A",          # builtins shadowing
   "C4",         # comprehensions
-  "C90",        # mccabe -- distinct ceiling from complexipy's cognitive one
+  "C90",        # mccabe, a distinct ceiling from complexipy's cognitive one
   "DTZ",        # naive datetimes
   "T20",        # no print in shipped code
   "PT",         # pytest style
@@ -232,13 +232,13 @@ select = [
   "RUF",
   "S",          # bandit
   "ASYNC",      # async antipatterns
-  "D",          # pydocstyle -- Google convention
+  "D",          # pydocstyle, Google convention
   "ANN",        # annotations required
-  "FA",         # future annotations required -- see the note under [tool.mypy] on the floor
+  "FA",         # future annotations required; see the note under [tool.mypy] on the floor
 ]
 ignore = [
   "D105",    # magic method docstrings
-  "D107",    # __init__ docstring -- documented on the class
+  "D107",    # __init__ docstring, documented on the class
   "TRY003",  # long messages outside exception class: our errors name the address they refused
 ]
 
@@ -276,8 +276,8 @@ ban-relative-imports = "parents"
 # directory-level waiver; this one spawns `uv`, `pytest`, `pip-audit` and a probe interpreter
 # across three scripts. A blanket "subprocess calls are fine in scripts/" would mean the next
 # one lands unexamined. Each call carries its own `# noqa: S603` and its own reason, and the
-# property those reasons assert -- resolved absolute path, list argv, no shell -- is the one
-# that makes them safe.
+# property those reasons assert, a resolved absolute path with list argv and no shell, is the
+# one that makes them safe.
 "scripts/**" = ["T20"]
 "tests/**" = ["D", "ANN", "S101", "S603", "S607", "PLR2004", "T20"]
 
@@ -297,7 +297,7 @@ ban-relative-imports = "parents"
 "tests/test_encodings.py" = ["S104"]
 
 # **The generator's internals are this file's subject.** It drives `_emit` and `_rows` directly
-# because the properties under test are about those two functions -- that a quote in a
+# because the properties under test are about those two functions: that a quote in a
 # network-fetched field cannot close a string literal, and that a block the generator cannot
 # parse stops it rather than being dropped. There is no public API to ask either question
 # through, and `main()` writes a whole file, so asserting on it instead would be asserting on
@@ -306,7 +306,7 @@ ban-relative-imports = "parents"
 
 # The leak check is scaffolding, and this is the file that checks the scaffolding works. Its
 # subject is the plugin's internals, so reaching them is the test rather than a shortcut past
-# an API -- there is no public one, and a lane that cannot fail is worse than no lane.
+# an API. There is no public one, and a lane that cannot fail is worse than no lane.
 "tests/test_leakcheck.py" = ["SLF001"]
 
 # **The `_dns_host` writes are this file's subject, not a shortcut around a public API.** Three
@@ -331,7 +331,7 @@ ban-relative-imports = "parents"
 "tests/test_adapter_parity.py" = ["SLF001"]
 
 # ---------------------------------------------------------------------------
-# mypy -- stricter of the two type gates, scoped to shipped code
+# mypy: stricter of the two type gates, scoped to shipped code
 # ---------------------------------------------------------------------------
 [tool.mypy]
 strict = true
@@ -354,7 +354,7 @@ enable_error_code = [
   "ignore-without-code",
   "unused-awaitable",
   # `explicit-override` is deliberately absent, and it is the one enabled-by-choice code this
-  # project cannot have. It requires `@typing.override`, which arrived in 3.12 -- so at the 3.10
+  # project cannot have. It requires `@typing.override`, which arrived in 3.12, so at the 3.10
   # floor satisfying it means depending on `typing_extensions`, and a runtime dependency
   # acquired to satisfy a type checker is the entire product traded for a lint. The alternative,
   # a hand-rolled no-op `override`, would be a decorator that tells the checker something it
@@ -365,7 +365,7 @@ enable_error_code = [
 ]
 
 # ---------------------------------------------------------------------------
-# ty -- second type gate, same scope
+# ty: second type gate, same scope
 # ---------------------------------------------------------------------------
 [tool.ty.src]
 include = ["src"]
@@ -380,7 +380,7 @@ python-version = "3.10"
 deprecated = "error"
 
 # ---------------------------------------------------------------------------
-# complexipy -- cognitive complexity (SonarQube S3776), distinct from mccabe
+# complexipy: cognitive complexity (SonarQube S3776), distinct from mccabe
 # ---------------------------------------------------------------------------
 [tool.complexipy]
 max-complexity-allowed = 15
@@ -407,7 +407,7 @@ norecursedirs = [
   "_tmp",
 ]
 # **Coverage is NOT here, and that is deliberate.** It belongs to the `fast` lane, which owns
-# the flags -- see `scripts/lanes.py`. Putting `--cov` in `addopts` makes pytest-cov a hard
+# the flags; see `scripts/lanes.py`. Putting `--cov` in `addopts` makes pytest-cov a hard
 # requirement of running the suite at all, which broke the `compat` lane the first time it ran:
 # those rows install the package and pytest, deliberately not the development toolchain, and
 # every one of them died on `unrecognized arguments: --cov`.
@@ -438,7 +438,7 @@ markers = [
 ]
 
 # ---------------------------------------------------------------------------
-# pyright / basedpyright -- IDE alignment only. NOT a committed gate.
+# pyright / basedpyright: IDE alignment only. NOT a committed gate.
 # The committed gate is `pyrightconfig.deprecations.json`, which is a different
 # configuration for a different purpose.
 # ---------------------------------------------------------------------------
