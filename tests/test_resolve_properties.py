@@ -49,7 +49,7 @@ def a_target() -> object:
 def refusal_for(resolver: object, policy: Policy = POLICY) -> BlockedAddressError | None:
     """Resolve and return the refusal, if there was one.
 
-    Hypothesis properties are about *either* outcome, so `pytest.raises` does not fit -- it
+    Hypothesis properties are about *either* outcome, so `pytest.raises` does not fit: it
     asserts that a call raises, and here raising is one of two correct answers.
 
     Args:

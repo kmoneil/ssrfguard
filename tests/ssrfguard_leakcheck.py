@@ -17,7 +17,7 @@ not open before the test is an objective fact about the process, and it does not
 is holding a reference to what.
 
 What it *does* depend on is timing, and two things had to be handled before this stopped being a
-flaky check -- both written up on ``_settled``, because both are the difference between a leak
+flaky check. Both are written up on ``_settled``, because both are the difference between a leak
 report and a report about a socket that was closed correctly a moment ago.
 
 A leak is described by its peer rather than by its number. A leak report nobody can act on is a
@@ -89,7 +89,7 @@ def _describe(fd: int) -> str:
     """Say what a leaked descriptor is connected to.
 
     The descriptor is duplicated before it is wrapped, so that closing the wrapper closes the
-    copy and leaves the leak itself exactly as it was -- a leak checker that tidied up after the
+    copy and leaves the leak itself exactly as it was. A leak checker that tidied up after the
     thing it is reporting would make the second run of a suite disagree with the first.
 
     Args:
@@ -120,8 +120,8 @@ def _settled(before: set[int]) -> set[int]:
     Two things happen between a test ending and its sockets being gone, and neither is a leak:
 
     * **A socket referenced only by a cycle closes when the collector reaches it.** The usual
-      cycle is an exception's traceback -- which every test that asserts on a refusal is holding
-      -- and a socket somebody still has a reference to is not a socket nobody can close. So
+      cycle is an exception's traceback, which every test that asserts on a refusal is holding,
+      and a socket somebody still has a reference to is not a socket nobody can close. So
       collect first, and report what survives that.
     * **The other end of a loopback connection closes when this end does, but not instantly.**
       A server thread blocked on a read needs a scheduler slot to notice the peer went away, so

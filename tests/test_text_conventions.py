@@ -3,14 +3,14 @@
 `src/ssrfguard/` was already written this way and nothing enforced it: nine shipped modules, one
 hundred and fifty-one ASCII `--`, and not a single em dash. The convention was visible in the
 source and invisible to every gate, which is the same shape as a docstring that states an
-invariant nothing checks -- and this repository has already been bitten by one of those.
+invariant nothing checks, and this repository has already been bitten by one of those.
 
 The rule now runs the whole tree rather than just the shipped package, so the prose a contributor
 writes and the prose that ships use one form of punctuation instead of two.
 
 **This file spells the character it forbids as an escape**, which is not a cute trick: written
 literally it would be a committed file containing an em dash, so the test would fail against
-itself and the only fix would be to exempt it -- and an exempt guard is a guard with a hole in
+itself and the only fix would be to exempt it, and an exempt guard is a guard with a hole in
 the shape of the thing it guards. `src/ssrfguard/__init__.py` writes its circled-digit doctest
 the same way and for the same reason.
 """
@@ -23,14 +23,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: U+2014 EM DASH, spelled as an escape. Written literally, this line would make the file an
-#: instance of what it forbids -- see the module docstring.
+#: instance of what it forbids. See the module docstring.
 EM_DASH = "\u2014"
 
 
 def _tracked() -> list[str]:
     """Every file git is tracking.
 
-    Asked of git rather than walked, so the answer is what a clone actually carries -- an
+    Asked of git rather than walked, so the answer is what a clone actually carries: an
     untracked scratch file is nobody's business and a gitignored one is not shipped.
 
     Returns:
@@ -89,7 +89,7 @@ def test_the_shipped_package_stays_ascii() -> None:
     what says this was a decision rather than an accident.
 
     One docstring in `_policy.py` writes the same characters literally, so the rule is asserted
-    here for every module *except* that one, named rather than silently excluded -- a known
+    here for every module *except* that one, named rather than silently excluded. A known
     exception is a decision; an unexplained gap in a loop is a bug waiting to be copied.
     """
     known_exception = "src/ssrfguard/_policy.py"

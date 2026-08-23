@@ -1,7 +1,7 @@
 """What HTTP/2 does underneath a pinned stream, measured rather than deduced.
 
 The worry was specific and it was worth having. HTTP/2 clients may reuse one connection for a
-*different* authority when the certificate covers both names -- connection coalescing. If
+*different* authority when the certificate covers both names, which is connection coalescing. If
 httpcore did that, a request to host B would travel over a connection whose address was
 validated for host A, and the pin would be per-connection while the policy is per-request. Those
 are not the same thing, and the difference would be a bypass.
@@ -9,7 +9,7 @@ are not the same thing, and the difference would be a bypass.
 **It does not.** Every connection class httpcore has answers ``can_handle_request`` with
 ``origin == self._origin``, an exact match on scheme, host and port, and the pool asks that
 before reusing anything. There is no coalescing to be exposed to. The tests below pin that,
-because it is a property of somebody else's code that this package's argument leans on -- the
+because it is a property of somebody else's code that this package's argument leans on, the
 same shape as the assertions pinning the address table against ``ipaddress``.
 
 The other half was whether ALPN survives the seam at all. It does, and it is not a coincidence:
@@ -52,7 +52,7 @@ class OnlyAnOrigin:
     """Something with an origin and nothing else.
 
     ``can_handle_request`` reads exactly one attribute, so it can be asked its question without
-    a connection behind it -- which matters here, because constructing a real
+    a connection behind it, which matters here because constructing a real
     :class:`HTTP2Connection` needs the ``h2`` package, and the question being asked has nothing
     to do with whether HTTP/2 is installed.
     """
@@ -104,7 +104,7 @@ def test_the_pool_asks_that_question_before_reusing_anything() -> None:
 def alpn_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[RecordingServer, str]]:
     """A TLS server on loopback that offers HTTP/2 in ALPN.
 
-    It speaks HTTP/1.1 once the handshake is done -- what is under test is whether the
+    It speaks HTTP/1.1 once the handshake is done. What is under test is whether the
     negotiation reaches the stream, not whether ``http.server`` can frame HTTP/2.
 
     Args:

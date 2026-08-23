@@ -1,6 +1,6 @@
 """Resolution: one lookup, every answer validated, the sockaddr kept intact.
 
-Driven by a fake resolver rather than by the network. That is not a compromise -- it is the only
+Driven by a fake resolver rather than by the network. That is not a compromise. It is the only
 way to write the answers this layer has to handle: a name returning one public and one private
 address, a name whose answers are all internal, an IPv6 answer carrying a scope identifier. None
 of those can be arranged against a real resolver on demand, and the one thing a fake cannot show
@@ -88,7 +88,7 @@ def test_duplicate_answers_are_collapsed() -> None:
     assert [str(a.ip) for a in resolved] == ["1.1.1.1", "8.8.8.8"]
 
 
-# -- partial block ---------------------------------------------------------------------------
+# partial block ----------
 
 
 def test_a_name_resolving_both_ways_is_refused_whole() -> None:
@@ -108,7 +108,7 @@ def test_an_explicitly_allowed_network_does_not_rescue_a_partially_denied_name()
     """The same rule from the other side, asserted directly.
 
     `allowed_networks` governs addresses. `on_partial_block` governs names. A user who allowed
-    10.0.0.0/8 allowed a network, not a name that also points at the metadata endpoint -- and
+    10.0.0.0/8 allowed a network, not a name that also points at the metadata endpoint, and
     the other reading would let an attacker launder any denied address by pairing it with an
     allowed one in the same answer set.
     """
@@ -149,13 +149,13 @@ def test_several_denied_answers_name_all_of_them() -> None:
     assert "10.0.0.1" in caught.value.reason
 
 
-# -- literal addresses -----------------------------------------------------------------------
+# literal addresses ----------
 
 
 def test_a_literal_address_target_asks_for_no_lookup() -> None:
     """`AI_NUMERICHOST` is what makes "no DNS" structural rather than incidental.
 
-    A numeric host would not reach DNS anyway, so the flag looks redundant -- and it is not.
+    A numeric host would not reach DNS anyway, so the flag looks redundant. It is not.
     It makes ``getaddrinfo`` *fail* rather than resolve when the host is not numeric, which is
     the difference between failing closed and resolving an attacker-controlled name. See the
     forged-target test below, which is the case it exists for.
@@ -172,7 +172,7 @@ def test_a_literal_address_target_asks_for_no_lookup() -> None:
     recorded.clear()
     resolve(target(), policy=POLICY, resolver=recording)
     assert recorded == [0], (
-        "a name must be looked up with no flags narrowing what DNS returns -- AI_ADDRCONFIG "
+        "a name must be looked up with no flags narrowing what DNS returns; AI_ADDRCONFIG "
         "in particular would hide an address family from validation, and an answer we never "
         "saw is an answer we never refused"
     )
@@ -188,8 +188,8 @@ def test_a_target_that_claims_to_be_literal_but_carries_a_name_fails_closed() ->
     """The case `AI_NUMERICHOST` exists for, and the one a forged target would exploit.
 
     `check_url` never builds this, so reaching it means somebody constructed a `Target` by hand
-    -- which is allowed, the type is public. Without the flag, the name would be resolved and
-    connected to; with it, the lookup refuses.
+    which is allowed, because the type is public. Without the flag the name would be resolved
+    and connected to; with it, the lookup refuses.
     """
     forged = Target(
         scheme="http",
@@ -206,7 +206,7 @@ def test_a_literal_address_is_revalidated_anyway() -> None:
     """A function returning validated addresses validates everything it returns.
 
     `check_url` already refused this one, so this path is only reachable by handing `resolve` a
-    target built some other way -- which is exactly when the caller most needs the check.
+    target built some other way, which is exactly when the caller most needs the check.
     """
     forged = Target(
         scheme="http",
@@ -225,7 +225,7 @@ def test_a_literal_ipv6_target_keeps_a_four_tuple() -> None:
     assert resolved.family is socket.AF_INET6
 
 
-# -- failures that are not policy decisions --------------------------------------------------
+# failures that are not policy decisions ----------
 
 
 def test_a_name_that_does_not_resolve_raises_the_resolver_error_unwrapped() -> None:

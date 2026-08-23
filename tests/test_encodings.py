@@ -6,7 +6,7 @@ it fences was never implemented, so nobody has a reason to know it is load-beari
 performance-minded change that compares a host against a list of known-bad strings deletes it
 without noticing.
 
-The class is not hypothetical. GHSA-jhqw-944x-xh94 is exactly this against FastGPT -- hex,
+The class is not hypothetical. GHSA-jhqw-944x-xh94 is exactly this against FastGPT: hex,
 decimal, IPv6 mapping and a trailing dot, each of which walked past a validator that was
 comparing strings.
 
@@ -14,8 +14,8 @@ Two layers refuse these and **the corpus is split by which one does**, because t
 the argument:
 
 * Some are refused by the *shape* of the host, before anything is looked up. A host made only of
-  digits and dots that is not a valid address has no legitimate reading -- RFC 3696 rules out an
-  all-numeric top-level label -- so it is an encoding attempt by construction.
+  digits and dots that is not a valid address has no legitimate reading, because RFC 3696 rules
+  out an all-numeric top-level label, so it is an encoding attempt by construction.
 * The rest are refused by *resolution*, and this is the half that matters. ``0x7f.0.0.1`` is a
   well-formed hostname by every syntactic rule; nothing about it looks wrong. It is refused
   because the resolver decodes it to 127.0.0.1 and the address table says no. There is no code
@@ -23,7 +23,7 @@ the argument:
 
 The forms are measured against the platform's own resolver rather than assumed, in the first
 test, because the second half of the argument is a claim about ``getaddrinfo`` rather than about
-us -- and a platform that stopped decoding them would move where the defence comes from.
+us, and a platform that stopped decoding them would move where the defence comes from.
 """
 
 from __future__ import annotations
@@ -186,7 +186,7 @@ def test_the_platform_still_decodes_the_form(row: Encoded) -> None:
 
     Resolving before validating is what removes this entire class, and it works because
     ``getaddrinfo`` decodes these itself. If a platform stopped, the defence would come from the
-    shape rule alone on some rows and from nothing at all on others -- so this is pinned rather
+    shape rule alone on some rows and from nothing at all on others, so this is pinned rather
     than assumed, the same way the address table is pinned against ``ipaddress``.
     """
     try:
@@ -204,7 +204,7 @@ def test_every_form_is_refused(row: Encoded) -> None:
     """The claim in one line: no form survives both layers, whatever it was written as.
 
     Deliberately not "the URL layer refuses it". Four of these are hosts the URL layer has no
-    business refusing -- ``0x7f.0.0.1`` is a well-formed name by every syntactic rule -- and
+    business refusing, since ``0x7f.0.0.1`` is a well-formed name by every syntactic rule, and
     saying otherwise would be claiming a defence that is not there.
     """
     with pytest.raises((BlockedURLError, BlockedAddressError)):
@@ -225,7 +225,7 @@ def test_normalisation_turns_it_into_an_address_the_policy_denies(row: Encoded) 
     """The host is decoded by the same transformation the resolver would have applied.
 
     ``check_url`` normalises through the ``idna`` codec, which is what ``getaddrinfo`` does
-    internally -- so the name that is checked is the name that would be resolved, and the two
+    internally, so the name that is checked is the name that would be resolved, and the two
     cannot disagree.
     """
     with pytest.raises((BlockedURLError, BlockedAddressError)) as refusal:
@@ -257,7 +257,7 @@ def test_resolution_refuses_it_even_with_the_shape_rule_bypassed(row: Encoded) -
     """Two independent defences, checked independently.
 
     A ``Target`` is a record of a decision rather than the decision itself, so one can be built
-    by hand -- and doing so grants nothing, because resolution re-checks every address it gets
+    by hand, and doing so grants nothing, because resolution re-checks every address it gets
     back. That is what this asserts: delete the shape rule tomorrow and every row here is still
     refused, by the layer that reads addresses rather than text.
     """

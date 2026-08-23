@@ -7,7 +7,7 @@ calls. An attacker's nameserver does exactly that for a living.
 
 So these run against a real DNS server on a real UDP socket, whose answers live in a dict a test
 edits mid-flight. Each one resolves a name, moves the record, and then does the thing that would
-be vulnerable -- and asserts the connection went where the *first* answer pointed.
+be vulnerable, and asserts the connection went where the *first* answer pointed.
 
 **The loopback policy is the harness, not a loophole.** These need an address that is both
 permitted and reachable from a test process, and the shipped table denies loopback for good
@@ -87,7 +87,7 @@ class Listener:
 
         The accept loop polls, so `accepted` is not populated the instant `connect` returns.
         Asserting on it without waiting is a race that fails about as often as the scheduler
-        feels like it -- which is the worst possible property for a security test, because the
+        feels like it, which is the worst possible property for a security test, because the
         response to an intermittent failure is to delete it.
 
         Args:
@@ -207,7 +207,7 @@ def test_the_vulnerable_pattern_reaches_the_metadata_endpoint(
 ) -> None:
     """What a guard that validates and then re-resolves actually does, spelled out.
 
-    Not a test of this package -- a test of the *bug*, written against the same fixture so the
+    Not a test of this package, but a test of the *bug*, written against the same fixture so the
     difference between the two is one line of code and not an argument. If this ever stops
     reaching the metadata address, the fixture has stopped being able to demonstrate rebinding
     and the test above has stopped meaning anything.
@@ -334,7 +334,7 @@ def test_an_ipv6_answer_is_pinned_too(dns: FlippingDNS) -> None:
 def test_resolution_asks_exactly_once_per_record_type(dns: FlippingDNS, listener: Listener) -> None:
     """One `resolve` is one lookup, counted rather than reasoned about.
 
-    This is the check that catches a *second* lookup hidden inside resolution -- the version
+    This is the check that catches a *second* lookup hidden inside resolution: the version
     that re-validates what it gets back and therefore refuses nothing wrongly, looks correct in
     review, and still connects to an address the caller never approved. Editing the record
     between calls cannot see it, because both of its lookups happen on the same side of the edit.
@@ -356,13 +356,13 @@ def test_a_nameserver_that_flips_on_every_query_cannot_move_the_connection(
 ) -> None:
     """The strongest form: the record changes between one query and the next, unprompted.
 
-    A real rebinding nameserver does not wait to be asked politely -- it answers differently
+    A real rebinding nameserver does not wait to be asked politely. It answers differently
     every time, so any implementation that looks up more than once gets an address nobody
     approved.
 
     **The second answer is deliberately a permitted one.** An implementation that re-resolved
     and then re-validated would refuse a metadata address and quietly fall back to the good one,
-    passing a test whose flip target is denied -- measured, that is exactly what happened. Only
+    passing a test whose flip target is denied, and measured, that is exactly what happened. Only
     a flip to somewhere *allowed* separates pinning from checking again, because there the
     second lookup produces a perfectly acceptable address that the caller still never approved.
     """
@@ -377,7 +377,7 @@ def test_a_nameserver_that_flips_on_every_query_cannot_move_the_connection(
             "flip.test",
             [
                 Zone(a=["127.0.0.1"]),  # what validation sees
-                Zone(a=["127.0.0.2"]),  # what a second look sees -- and it is allowed
+                Zone(a=["127.0.0.2"]),  # what a second look sees, and it is allowed
                 Zone(a=[METADATA]),  # and what a third would see, once trust is established
             ],
         )

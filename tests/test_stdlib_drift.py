@@ -2,7 +2,7 @@
 
 This is the file that makes "version-stable" mean something. `ipaddress.is_private` and
 `is_global` are the two predicates a guard would naturally reach for, and both are wrong for this
-question in ways that have already moved once -- CVE-2024-4032 rewrote CPython's tables in
+question in ways that have already moved once: CVE-2024-4032 rewrote CPython's tables in
 3.9.19, 3.10.14, 3.11.9 and 3.12.4.
 
 So the disagreements are enumerated rather than tolerated. Every address in the corpus where our
@@ -32,10 +32,10 @@ from .test_address_table import CORPUS
 # `is_global` is False. An address is listed here when our verdict differs from at least one of
 # those readings.
 DISAGREEMENTS: dict[str, str] = {
-    # -- the strongest stdlib guard PERMITS these; we refuse. This is the dangerous direction,
-    #    and every one of them is reachable from a server that trusts `ipaddress`. --
+    # The strongest stdlib guard PERMITS these; we refuse. This is the dangerous direction,
+    # and every one of them is reachable from a server that trusts `ipaddress`.
     "64:ff9b::7f00:1": "NAT64 prefix carrying 127.0.0.1; is_global=True because the prefix "
-    "genuinely is routable -- the packet is not",
+    "genuinely is routable; the packet is not",
     "64:ff9b::a00:1": "NAT64 prefix carrying 10.0.0.1",
     "64:ff9b::a9fe:a9fe": "NAT64 prefix carrying the cloud metadata address",
     "::7f00:1": "IPv4-compatible IPv6 carrying 127.0.0.1; RFC 4291 deprecated the prefix and "
@@ -47,10 +47,10 @@ DISAGREEMENTS: dict[str, str] = {
     "239.255.255.250": "IPv4 multicast, the SSDP group",
     "fec0::1": "site-local, deprecated by RFC 3879 and dropped from both tables; is_global=True",
     "192.88.99.1": "6to4 relay anycast, deprecated by RFC 7526; is_global=True",
-    "5f00::1": "SRv6 SIDs (RFC 9602); IANA says not globally reachable, CPython says it is -- "
-    "live drift, not a historical one",
+    "5f00::1": "SRv6 SIDs (RFC 9602); IANA says not globally reachable, CPython says it is. "
+    "Live drift, not a historical one",
     "100:0:0:1::1": "RFC 9780 dummy prefix; same live drift as 5f00::/16",
-    # -- the stdlib REFUSES this and we permit: a wrong deny we fix rather than inherit. --
+    # the stdlib REFUSES this and we permit: a wrong deny we fix rather than inherit.
     "2002:808:808::": "6to4 carrying 8.8.8.8. CPython treats the whole of 2002::/16 as private, "
     "so a stdlib guard refuses a public destination; we decode and permit it",
 }
@@ -90,7 +90,7 @@ def test_every_declared_disagreement_still_disagrees(address: str) -> None:
     """A CPython release that changes one of these must fail the build, not pass it quietly.
 
     This is the direction that matters. If a patch release fixes `is_global` for `5f00::/16`,
-    our table is unchanged and still correct -- but the *reason* recorded here has expired, and a
+    our table is unchanged and still correct, but the *reason* recorded here has expired, and a
     note that no longer describes reality is how a table stops being reviewable.
     """
     ours = DEFAULT_DENIED.classify(address).blocked
@@ -98,7 +98,7 @@ def test_every_declared_disagreement_still_disagrees(address: str) -> None:
     assert ours != theirs, (
         f"{address} no longer disagrees with the standard library on "
         f"CPython {sys.version.split()[0]}: both now say blocked={ours}. Remove it from "
-        f"DISAGREEMENTS -- the recorded reason was {DISAGREEMENTS[address]!r}."
+        f"DISAGREEMENTS; the recorded reason was {DISAGREEMENTS[address]!r}."
     )
 
 
@@ -136,8 +136,8 @@ def test_the_dangerous_direction_dominates() -> None:
     """Most of our disagreements are addresses the standard library would let through.
 
     Stated as a test so the shape of the table's value is asserted rather than claimed in a
-    README. If this ever inverts -- if we start mostly disagreeing by refusing things the
-    standard library permits for good reason -- the table has drifted into false positives and
+    README. If this ever inverts, so that we start mostly disagreeing by refusing things the
+    standard library permits for good reason, the table has drifted into false positives and
     somebody should look at it.
     """
     permits_but_we_refuse = [

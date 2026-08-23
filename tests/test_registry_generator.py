@@ -70,8 +70,8 @@ def test_a_quote_in_a_registry_field_cannot_close_the_literal() -> None:
     """The field nobody thought of as input.
 
     Three of the four values `_emit` interpolates come from a CSV fetched over the network, and
-    they are being written into Python source. `name` happened to be defended -- its quotes are
-    stripped upstream -- and `cidr` was not, so a quote in IANA's *Address Block* column closed
+    they are being written into Python source. `name` happened to be defended, with its quotes
+    stripped upstream, and `cidr` was not, so a quote in IANA's *Address Block* column closed
     the string and the rest of the cell became code that `import ssrfguard` would run.
     """
     hostile = '10.0.0.0/8"), __import__("os").system("id"), _b("10.0.0.0/8'
@@ -184,12 +184,12 @@ def test_the_generator_still_produces_the_file_that_is_committed(
     """`_registry.py` says **Generated. Do not edit by hand**, and that has to stay true.
 
     It was not: the committed file had been hand-repaired after generation, so running the
-    documented workflow produced a module that failed this repository's own ruff gate -- a
+    documented workflow produced a module that failed this repository's own ruff gate: a
     `typing.Union` left over from the abandoned 3.9 floor, and an `__all__` in the wrong order.
     Nothing caught it, because the generator deliberately does not run in CI.
 
-    This compares the *header* -- everything the template owns, which is everything above the
-    table -- against the committed file, with the snapshot date normalised because it is the one
+    This compares the *header*, everything the template owns and therefore everything above the
+    table, against the committed file, with the snapshot date normalised because it is the one
     line that is supposed to differ. No network: what the template emits does not depend on what
     IANA is serving.
     """
@@ -236,7 +236,7 @@ def test_the_committed_table_still_matches_what_iana_serves(
     """The freshness check, and the only test here that reaches the network.
 
     Compared as *values* rather than as text, so formatting cannot make this fail and a real
-    registry change cannot hide behind whitespace. A difference here is not a bug -- it is IANA
+    registry change cannot hide behind whitespace. A difference here is not a bug. It is IANA
     having moved, which is a change to what this package refuses and is reviewed as one.
     """
     generated = tmp_path / "_registry.py"

@@ -121,7 +121,7 @@ def test_no_metadata_hostname_is_matched_anywhere_in_the_shipped_code() -> None:
     does not provide.
 
     The error quality that a name would have bought is bought instead by naming the *addresses*,
-    which happens after resolution where it cannot be spoofed -- see the test above.
+    which happens after resolution where it cannot be spoofed. See the test above.
     """
     offenders: list[str] = []
     for module in sorted(Path(__file__).resolve().parent.parent.glob("src/ssrfguard/*.py")):
@@ -141,7 +141,7 @@ def test_a_metadata_hostname_passes_the_url_layer_and_is_refused_by_its_address(
     """The decision, demonstrated rather than described.
 
     Nothing about the *name* is refused, because nothing here looks at names. What refuses it is
-    where it resolves to -- which is also what refuses the same endpoint reached under any other
+    where it resolves to, which is also what refuses the same endpoint reached under any other
     name, or under none.
     """
     policy = Policy()

@@ -132,7 +132,7 @@ def test_a_policy_can_be_widened_to_permit_everything_deliberately() -> None:
     """A caller who wants no address filtering must be able to say so explicitly.
 
     Not because it is a good idea, but because a control with no off switch gets replaced by no
-    control at all -- and an explicit `allowed_networks=("0.0.0.0/0",)` in a config file is
+    control at all, and an explicit `allowed_networks=("0.0.0.0/0",)` in a config file is
     reviewable, while a fork of this library is not.
     """
     wide = Policy(allowed_networks=("0.0.0.0/0", "::/0"))
@@ -182,7 +182,7 @@ def test_allowing_a_translation_prefix_is_refused_at_construction(entry: str) ->
     """The allowlist is consulted before the table gets to decode, so this would be a bypass.
 
     `check_address` returns on the first allowed-network hit. An entry inside a wrapper therefore
-    permits every IPv4 destination embedded in it, undecoded -- `64:ff9b::a9fe:a9fe` is the
+    permits every IPv4 destination embedded in it, undecoded. `64:ff9b::a9fe:a9fe` is the
     metadata endpoint behind a NAT64 gateway, and it would have been permitted by one line of
     configuration that reads as "let NAT64 through".
     """
@@ -205,12 +205,12 @@ def test_a_deliberately_wide_entry_that_merely_contains_one_is_honoured() -> Non
     """`subnet_of`, not `overlaps`, and the difference is the judgement.
 
     An entry *inside* a wrapper is somebody naming a prefix whose contents they have not thought
-    about. An entry *containing* one is somebody painting with a roller -- and refusing those
+    about. An entry *containing* one is somebody painting with a roller, and refusing those
     would break the off switch the test above this asserts, which exists because a control with
     no off switch gets replaced by no control at all.
     """
     # `::/0` contains every wrapper. `2000::/3` is global unicast, which contains 6to4 and Teredo
-    # but *not* NAT64 -- `64:ff9b::` begins `000`, not `001` -- so it is checked against an
+    # but *not* NAT64, since `64:ff9b::` begins `000` rather than `001`, so it is checked against an
     # address it actually covers rather than against one it does not.
     assert Policy(allowed_networks=("::/0",)).permits_address("64:ff9b::7f00:1")
     assert Policy(allowed_networks=("2000::/3",)).permits_address("2002:7f00:1::")
@@ -230,7 +230,7 @@ def test_a_deliberately_wide_entry_that_merely_contains_one_is_honoured() -> Non
 def test_an_entry_a_more_specific_row_decides_is_not_refused(entry: str, decided_by: str) -> None:
     """The check has to use the table's own longest-prefix rule or it produces wrong denies.
 
-    `::1/128` sits inside `::/96`, the deprecated IPv4-compatible wrapper -- and allowing IPv6
+    `::1/128` sits inside `::/96`, the deprecated IPv4-compatible wrapper, and allowing IPv6
     loopback is an ordinary thing to do. The wrapper never decides it, because `::1/128` has its
     own row. An earlier version of this check asked "does the entry touch a translated block",
     which refused every one of these; the suite caught it on `::1/128`, which the connection
@@ -262,8 +262,8 @@ def test_a_url_longer_than_the_policy_allows_is_refused_unread() -> None:
 
     Not a ReDoS: measured across four octaves, both paths are strictly linear and `_HOSTNAME`
     cannot backtrack, because every repetition in it must consume a literal dot. What it lacked
-    was a bound. The non-ASCII path costs about 1.9 microseconds per character -- the `idna`
-    codec runs nameprep per label -- so a 10MB URL was roughly 19 CPU-seconds of one worker.
+    was a bound. The non-ASCII path costs about 1.9 microseconds per character, because the
+    `idna` codec runs nameprep per label, so a 10MB URL was roughly 19 CPU-seconds of one worker.
     """
     policy = Policy()
     url = "http://example.com/" + "a" * policy.max_url_length

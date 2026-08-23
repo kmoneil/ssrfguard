@@ -7,7 +7,7 @@ request arrived at all. So this records them from the server side and the tests 
 
 **The SNI is recorded on the wire rather than by patching the client.** A server-side
 ``sni_callback`` sees exactly what the client sent, and a client that sends an address instead of
-a name sends nothing at all -- Python will not put an IP literal in ``server_name``, because
+a name sends nothing at all, because Python will not put an IP literal in ``server_name``:
 RFC 6066 does not allow one. `sni` coming back ``None`` is therefore the signature of a pinned
 address having reached TLS, which is the failure the adapter exists to make impossible.
 
@@ -106,7 +106,7 @@ class _Server(http.server.ThreadingHTTPServer):
         """Record a failed exchange rather than writing a traceback to stderr.
 
         Half of the TLS assertions here are about a handshake *failing*, and the default
-        behaviour prints a page of traceback for each one -- which trains a reader to ignore
+        behaviour prints a page of traceback for each one, which trains a reader to ignore
         tracebacks in this suite's output.
 
         Args:

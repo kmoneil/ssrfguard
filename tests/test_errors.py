@@ -1,7 +1,7 @@
 """The exception hierarchy as a public surface.
 
-All five are now raised by something. Two of them -- `ProxyUnsupportedError` and
-`TooManyRedirectsError` -- were defined and tested here before the layers that raise them
+All five are now raised by something. Two of them, `ProxyUnsupportedError` and
+`TooManyRedirectsError`, were defined and tested here before the layers that raise them
 existed, because the hierarchy is what callers write `except` clauses against, and a class that
 arrives in a later release is a class every existing `except SSRFGuardError` already covers only
 if it was in the tree from the start. The assertions below stayed the same when the adapters

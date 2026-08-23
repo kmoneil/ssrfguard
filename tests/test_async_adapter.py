@@ -1,6 +1,6 @@
 """The async adapter, and the one thing about it that is not the sync adapter's problem.
 
-Every guarantee this package makes is asserted against the async client too -- it is a third row
+Every guarantee this package makes is asserted against the async client too. It is a third row
 in ``tests/test_adapter_parity.py`` and in the redirect matrix, driven through a blocking portal
 so it can run the same tests rather than a translated copy of them.
 
@@ -9,7 +9,7 @@ blocks and has no timeout: ``socket.setdefaulttimeout`` does not apply to it, an
 authoritative server can stall a lookup for as long as it likes. On the synchronous path that is
 a documented denial-of-service surface and the caller's to supervise. On the async path a
 backend that resolved inline would stall **the whole event loop**, so one hostile hostname would
-freeze every unrelated request in the process -- and a security library that does that gets
+freeze every unrelated request in the process. A security library that does that gets
 removed, and a removed control protects nothing.
 
 So: a resolver that blocks for a fifth of a second, a task counting ticks beside it, and an
@@ -100,12 +100,12 @@ class Stalling(Resolver):
 
 @pytest.mark.anyio
 async def test_a_stalled_lookup_does_not_stall_the_loop(server: RecordingServer) -> None:
-    """Resolving off the loop, measured -- which is what separates having thought about it from
+    """Resolving off the loop, measured, which is what separates having thought about it from
     having done it.
 
     The counter is the whole assertion. If resolution ran on the loop, the counting task would
     not be scheduled at all while the lookup blocked and the count would be zero. The bound is
-    deliberately far below what an idle machine produces -- the claim being checked is "the loop
+    deliberately far below what an idle machine produces. The claim being checked is "the loop
     kept running", not "the loop ran at a particular speed", and a test that asserted the latter
     would fail on a loaded runner and then be deleted.
     """
@@ -219,7 +219,7 @@ async def test_a_prebuilt_async_transport_carries_its_own_policy(server: Recordi
     """The positive half of the test above, which is the half that had never been constructed.
 
     ``transport=`` is documented on this class as the path for a caller who configured one, and
-    the synchronous twin has a test for it. This one had only the refusal -- so the branch that
+    the synchronous twin has a test for it. This one had only the refusal, so the branch that
     *accepts* a transport was never taken, and a statement-coverage gate reported 100% while the
     documented path on one of three shipped client surfaces went unexercised. The `fast` lane now
     measures branches for that reason.
@@ -282,8 +282,8 @@ async def test_a_connection_that_lands_elsewhere_is_refused(
     """The check after the connection is up, exercised by making the peer disagree.
 
     Connecting to an address cannot land elsewhere, so nothing reachable through the public API
-    triggers this. It is the answer to everything between this process and the wire -- a
-    transparent proxy, a redirecting firewall rule -- and a defence nobody has run is a defence
+    triggers this. It is the answer to everything between this process and the wire, such as a
+    transparent proxy or a redirecting firewall rule, and a defence nobody has run is a defence
     nobody has proven.
     """
 
@@ -409,7 +409,7 @@ async def test_a_timed_out_address_is_failed_over_from(
     """The synchronous path moves on from a timed-out answer and this one used to raise on it.
 
     A host answering with one dead address and one live one therefore worked on `Client` and
-    failed on `AsyncClient` -- the two clients disagreeing about the same host, which is exactly
+    failed on `AsyncClient`, the two clients disagreeing about the same host, which is exactly
     what the shared matrix exists to prevent and what this file's own docstring calls the reason
     a guard becomes a support burden and then gets removed.
     """

@@ -5,7 +5,7 @@ The guarantees this package makes are asserted once, against both adapters, in
 this seam.
 
 Most of it is a set of tests of **urllib3 itself**. Writing the validated address into
-``_dns_host`` -- the approach this adapter was originally specified to take -- takes ``.host``
+``_dns_host``, the approach this adapter was originally specified to take, takes ``.host``
 with it, because ``.host`` is derived from it; and ``HTTPSConnection.connect`` reads
 ``server_hostname`` off ``.host``. Those tests pin what that actually does, measured rather than
 argued: the request fails on a certificate check against the pinned *address*, and the one-line
@@ -55,7 +55,7 @@ def no_ambient_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove any proxy this machine happens to have configured.
 
     requests reads the environment on every request, so a developer with `HTTP_PROXY` exported
-    would watch most of this file refuse -- correctly, which is the problem: a suite that fails
+    would watch most of this file refuse, correctly, which is the problem: a suite that fails
     because of a shell variable teaches its reader that red means nothing. The proxy tests set
     what they need after this has run.
 
@@ -200,7 +200,7 @@ def test_a_timeout_arrives_as_urllib3s_own_timeout(
 
 
 # ---------------------------------------------------------------------------------------------
-# TLS -- the three assertions this adapter may never fail
+# TLS: the three assertions this adapter may never fail
 # ---------------------------------------------------------------------------------------------
 
 
@@ -324,7 +324,7 @@ def test_installing_the_guarded_pools_leaves_urllib3s_own_table_alone() -> None:
     """``PoolManager`` keeps the module-level table by reference rather than copying it.
 
     So the table has to be *replaced*. Writing a key into the one the manager was handed would
-    change urllib3's default for every other client in the process -- a security library
+    change urllib3's default for every other client in the process, which is a security library
     silently rewriting an unrelated one's connection class.
     """
     before = dict(urllib3.poolmanager.pool_classes_by_scheme)
@@ -405,7 +405,7 @@ def test_the_one_line_repair_for_that_turns_hostname_verification_off(
     ``assert_hostname=False`` is what a developer reaches for when every request starts failing
     on an IP-address mismatch. It connects: a certificate issued to ``right.test``, accepted by
     a client that asked for 127.0.0.1 and checked nothing. The trap is not that the approach
-    fails open on its own -- it is that it fails closed in a way whose nearest repair fails open.
+    fails open on its own. It is that it fails closed in a way whose nearest repair fails open.
 
     The request that goes out is worth reading too: no name in the handshake, and the pinned
     address in the ``Host`` header.
