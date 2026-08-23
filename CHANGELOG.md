@@ -54,6 +54,22 @@ All notable changes to this project are documented here. The format follows
 - `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
   The last two are raised by layers not built yet; they exist now so that every current
   `except SSRFGuardError` already covers them.
+- **The requests adapter.** `ssrfguard.requests.Session` is a `requests.Session` whose every
+  connection resolves once, validates every answer and connects to one of the answers it
+  validated — so redirects, retries and pool refills are covered by the seam rather than by
+  three rules to remember. `SafeAdapter` is the same guarantee as a transport adapter, for
+  callers assembling a session of their own.
+- The pin lives in urllib3's `HTTPConnection._new_conn()`, the only place the address is used,
+  so `.host` is left holding the hostname. TLS therefore verifies the certificate against the
+  **hostname** and `Host:` still carries the hostname — both read off the server in the test
+  suite rather than off the client, because a client can only be asked what it believes it sent.
+- The whole URL policy — scheme, port, and a literal address — is re-checked by the function
+  that opens the socket, so a connection pool reached by any route is still bound by it.
+- A proxy is refused. `HTTPAdapter.send` receives the merged proxy mapping, environment
+  variables included, and the same function requests uses to select a proxy decides whether one
+  applies — so `no_proxy` still means no proxy rather than a false refusal. `allow_proxy=True`
+  accepts that enforcement has moved to the proxy. A connection asked to `CONNECT` refuses at
+  the socket, where the host that would be pinned is the proxy rather than the target.
 
 ### Proven
 
@@ -65,6 +81,18 @@ All notable changes to this project are documented here. The format follows
 - The same fixture carries a test of the **bug** — validate, then hand the name back to something
   that resolves it again — which reaches the metadata address. If that ever stops working, the
   fixture can no longer demonstrate rebinding and the tests above stop meaning anything.
+- **Nothing in urllib3 resolves or connects behind the adapter.** Asserted by making
+  `create_connection` — the one function urllib3 would look a name up in — raise for the
+  duration of a request that then succeeds.
+- **The seam this adapter did not take is measured and pinned.** urllib3's `.host` is a property
+  over `_dns_host`, so writing the validated address into `_dns_host` writes it into `.host`,
+  and `HTTPSConnection.connect` reads `server_hostname` from there. Against a loopback server
+  holding a certificate for one name: as specified, every request fails on an IP-address
+  mismatch; `assert_hostname=False`, which is the one-line repair for that failure, connects and
+  accepts a certificate issued to a name nobody checked; and `assert_hostname=<hostname>`
+  restores the check while still sending the address as the `Host` header and no name at all in
+  the handshake. Three tests hold that, so a urllib3 release that changes any of it fails this
+  build rather than quietly retiring the argument for the seam that was taken.
 
 ### Notes
 
@@ -73,4 +101,4 @@ All notable changes to this project are documented here. The format follows
   changes one fails the build instead of moving the answer silently. Twelve of the thirteen are
   addresses the strongest standard-library guard permits and this one refuses.
 
-Nothing else is implemented yet. There is no release.
+The httpx client is not built yet. There is no release.
