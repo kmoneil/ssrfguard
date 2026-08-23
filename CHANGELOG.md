@@ -51,6 +51,27 @@ All notable changes to this project are documented here. The format follows
 - `connect()` requires the policy rather than accepting one, so there is no path through this
   package to a socket that skipped the check, and it confirms the connected peer is the address
   that was validated before returning.
+- **`Policy.max_connection_attempts`, defaulting to 4, bounds how many validated addresses a
+  connection may try.** The timeout is per attempt and the answer count belongs to whoever runs
+  the name's authoritative server, so an uncapped sequence multiplies the caller's timeout by a
+  number an attacker chose: a zone answering with two hundred permitted addresses that all drop
+  packets held one worker for two hundred times the timeout it asked for, on a path that reads
+  as a slow upstream rather than as an attack. Four keeps the dual-stack failover that is the
+  reason for trying more than one at all. The refusal names the field and says how many
+  addresses it did not try. Every address is still *checked* — the cap bounds what is attempted,
+  never what is validated, and a denied address beyond it still refuses the whole sequence.
+- **A sequence in which every attempt timed out raises `TimeoutError` rather than `OSError`.**
+  `TimeoutError` is an `OSError`, so the plain one was caught by both adapters' `except OSError`
+  before their `except TimeoutError` could run — which made those branches unreachable and
+  turned a connect timeout into `requests.exceptions.ConnectionError` and `httpx.ConnectError`,
+  where the unguarded clients raise `ConnectTimeout`. A caller whose retry or circuit breaker
+  keys on `requests.exceptions.Timeout` stopped matching. A single refusal among the attempts
+  still reports as `OSError`, because a refusal is the more informative of the two.
+- **The async backend fails over past a timed-out address**, which it did not: it raised on the
+  first timeout while the synchronous path moved on, so a host answering with one dead address
+  and one live one succeeded on `Client` and failed on `AsyncClient`. It now raises
+  `httpcore.ConnectTimeout` only when every attempt timed out, and honours
+  `max_connection_attempts` like the synchronous path.
 - `BlockedURLError`, `ProxyUnsupportedError` and `TooManyRedirectsError` complete the hierarchy.
   The last two are raised by layers not built yet; they exist now so that every current
   `except SSRFGuardError` already covers them.

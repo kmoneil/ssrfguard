@@ -14,6 +14,14 @@ control at all. Failing over is only safe because a partially-denied name never 
 see ``on_partial_block`` in :class:`ssrfguard.Policy`. Read the two together: reject-on-partial
 is what makes iterating over the survivors safe.
 
+**It stops after ``max_connection_attempts``, and that bound is a security control.** The
+timeout is per attempt, and how many attempts there are is decided by whoever runs the
+authoritative server for the name being fetched. A zone that answers with two hundred permitted
+addresses, all of them silently dropping packets, turns one request into two hundred times the
+timeout the caller asked for -- a worker held for as long as the attacker cares to hold it, on a
+path that looks like a slow upstream rather than like an attack. Failing over needs a handful of
+attempts, not all of them.
+
 **The peer is checked after the connection is up.** ``connect`` to a specific address cannot
 land somewhere else, so this looks redundant. It is the cheapest possible answer to everything
 between this process and the wire -- a transparent proxy, a redirecting firewall rule, a
@@ -108,16 +116,20 @@ def connect(
     source_address: tuple[str, int] | None = None,
     socket_options: Iterable[SocketOption] | None = None,
 ) -> socket.socket:
-    """Connect to the first reachable address among those already validated.
+    """Connect to the first reachable address among those validated, up to the attempt cap.
 
     Args:
         addresses: Validated answers, in the resolver's own order, from
-            :func:`ssrfguard.resolve`. Every one of them is checked again here.
+            :func:`ssrfguard.resolve`. Every one of them is checked again here, and the first
+            ``policy.max_connection_attempts`` of them are tried.
         policy: The policy they were validated against. **Required, not optional**, so that
             there is no path through this package to a socket that skipped the check -- an
-            optional security check is a security check somebody forgets.
+            optional security check is a security check somebody forgets. Also supplies
+            ``max_connection_attempts``, which bounds how long a hostile answer set can hold
+            this call.
         timeout: Seconds to wait per attempt, not for the sequence. ``None`` uses the system
-            default, which may be several minutes.
+            default, which may be several minutes. The whole call is therefore bounded by
+            ``timeout * policy.max_connection_attempts``, which is the reason that cap exists.
         source_address: Local address to bind before connecting.
         socket_options: ``setsockopt`` arguments applied to every attempt.
 
@@ -131,8 +143,14 @@ def connect(
             rather than skipped, because for a sequence that came from :func:`ssrfguard.resolve`
             it cannot happen -- so it happening means the caller bypassed resolution, and that
             is exactly when a loud failure beats a quiet fallback.
-        OSError: If every address was refused by the network. The message names each address and
-            what it failed with; the last failure is chained as the cause.
+        OSError: If every attempt was refused by the network. The message names each address
+            tried, what it failed with, and how many were left untried; the last failure is
+            chained as the cause.
+        TimeoutError: If every attempt timed out, rather than a plain :class:`OSError`. A
+            caller that distinguishes a timeout from a refusal -- which is what a retry or a
+            circuit breaker is for -- gets the same answer the unguarded client would have
+            given it. A single refusal among the attempts makes this an ``OSError`` instead,
+            because the refusal is the more informative of the two.
 
     Note:
         This function performs no name resolution and has nothing to resolve: an
@@ -144,12 +162,31 @@ def connect(
     for address in addresses:
         policy.check_address(address.ip)
 
+    attempted = addresses[: policy.max_connection_attempts]
     failures: list[str] = []
     last: OSError | None = None
-    for address in addresses:
+    # Every failure so far having been a timeout, which starts true because the loop below
+    # always runs at least once -- `addresses` is non-empty and the cap is at least one.
+    only_timeouts = True
+    for address in attempted:
         try:
             return _open(address, timeout, source_address, socket_options)
         except OSError as failed:
             failures.append(f"{address} ({failed})")
             last = failed
-    raise OSError(f"could not connect to any validated address: {'; '.join(failures)}") from last
+            only_timeouts = only_timeouts and isinstance(failed, TimeoutError)
+
+    skipped = len(addresses) - len(attempted)
+    untried = (
+        ""
+        if not skipped
+        else f"; {skipped} further address(es) not tried "
+        f"(max_connection_attempts={policy.max_connection_attempts})"
+    )
+    message = f"could not connect to any validated address: {'; '.join(failures)}{untried}"
+    # `TimeoutError` is an `OSError`, so a plain `OSError` here would be caught by the adapters'
+    # `except OSError` before their `except TimeoutError` ever ran -- and a caller who
+    # distinguishes "timed out" from "refused", which is what every retry and circuit-breaker
+    # does, would be told the wrong one. Only when *every* attempt timed out: a refusal mixed
+    # in is the more informative answer of the two.
+    raise (TimeoutError(message) if only_timeouts else OSError(message)) from last
