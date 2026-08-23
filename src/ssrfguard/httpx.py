@@ -11,19 +11,19 @@ the other, from ``httpcore/_sync/connection.py``::
 
 **httpcore passes the origin hostname to ``start_tls`` itself.** Implementing ``connect_tcp`` and
 returning a connected stream is therefore the whole of the change, and the failure that trades an
-SSRF hole for a worse one -- verifying the certificate against the address that was pinned -- is
-not something this module has to remember not to do. There is no line here that could do it.
+SSRF hole for a worse one, namely verifying the certificate against the address that was pinned,
+is not something this module has to remember not to do. There is no line here that could do it.
 
 That argument is worth one more step than it looks. The stream this backend returns is
 **httpcore's own** ``SyncStream``, not one written here, so ``start_tls`` and the read and write
 paths are httpcore's code running unmodified. A hand-written stream would have to pass
-``server_hostname`` through by hand, and that line -- correct today, one careless edit from
-being an address tomorrow -- is exactly the line this seam exists to not have. The import is
+``server_hostname`` through by hand, and that line, correct today and one careless edit from
+being an address tomorrow, is exactly the line this seam exists to not have. The import is
 therefore deliberate, and a test asserts the returned stream is that class.
 
 **The whole URL policy runs in ``handle_request``**, not in the backend. A network backend is
 handed a host and a port and never learns the scheme, so the scheme, the port, credentials in the
-authority and the shape of the host are decided at the transport, once per request -- which is
+authority and the shape of the host are decided at the transport, once per request, which is
 also what makes a redirect hop a policy question rather than a client one. The backend
 independently checks the port and every resolved address, so a pool assembled around it directly
 still refuses what the policy refuses.
@@ -38,9 +38,9 @@ than a property of one function.
 **``socket_options`` land at different moments on the two clients, and that is not fixable
 here.** The synchronous path applies them to a socket it created and has not connected yet; the
 asynchronous path applies them to the socket anyio hands back, which is already connected. So an
-option whose whole effect depends on being set before connect -- ``SO_SNDBUF`` and ``SO_RCVBUF``
-window scaling, ``TCP_FASTOPEN``, ``SO_BINDTODEVICE``, ``IP_TOS`` on the SYN, ``TCP_MAXSEG`` --
-works on :class:`Client` and does nothing on :class:`AsyncClient`.
+option whose whole effect depends on being set before connect works on :class:`Client` and does
+nothing on :class:`AsyncClient`: ``SO_SNDBUF`` and ``SO_RCVBUF`` window scaling,
+``TCP_FASTOPEN``, ``SO_BINDTODEVICE``, ``IP_TOS`` on the SYN, and ``TCP_MAXSEG``.
 
 Moving the asynchronous side earlier means owning socket creation, which means writing the
 stream, which means writing the ``server_hostname`` line this seam exists in order not to have.
@@ -77,11 +77,11 @@ from httpcore._backends.anyio import AnyIOStream
 from httpcore._backends.sync import SyncStream
 
 # httpx's own answer to "did this hop leave the origin", so that headers are stripped on
-# exactly the hops httpx already strips `Authorization` on -- this can then only ever strip
+# exactly the hops httpx already strips `Authorization` on, so this can only ever strip
 # more than httpx would, never less.
 #
 # httpx's own reading of the proxy environment, so that `NO_PROXY` means exactly what it
-# means to httpx -- including `NO_PROXY=*`, which switches the environment off entirely and
+# means to httpx, `NO_PROXY=*` included, which switches the environment off entirely and
 # must therefore not produce a refusal. Re-deriving it here would be a second parser to keep
 # in agreement with the first.
 from httpx._client import _is_https_redirect, _same_origin
@@ -112,14 +112,14 @@ __all__ = [
 _NODELAY: httpcore.SOCKET_OPTION = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 #: The scheme recorded on a target built inside the backend. A network backend genuinely does not
-#: know the scheme -- httpcore decides whether to start TLS *after* this returns -- and this
+#: know the scheme, since httpcore decides whether to start TLS *after* this returns, and this
 #: value is never checked against a policy, because the URL was already checked at the transport.
 #: It is spelled honestly rather than guessed at, and it is not a scheme any policy allows, so
 #: anything that did check it would refuse rather than wave it through.
 _TCP = "tcp"
 
 #: Why a unix socket is refused, in one place because four things say it. There is no flag
-#: to permit one: the question a policy answers -- may this process reach this address --
+#: to permit one. The question a policy answers, may this process reach this address,
 #: has no meaning for a path in the filesystem, and a guard that waved it through would be
 #: reporting a decision it never made.
 _NO_UNIX_SOCKETS = (
@@ -136,7 +136,7 @@ def _origin_target(host: str, port: int) -> Target:
     rather than the decision itself, and resolution re-checks every address it gets back.
 
     Args:
-        host: The host httpcore was about to resolve, already an A-label -- httpx punycodes a
+        host: The host httpcore was about to resolve, already an A-label, since httpx punycodes a
             name when it builds the URL.
         port: The port it was about to connect to.
 
@@ -176,7 +176,7 @@ def _verify_peer(stream: anyio.abc.SocketStream, address: Address) -> None:
     """Check that the connection reached the address that was validated.
 
     The synchronous path does this on the socket it opened itself; this does it on the one anyio
-    opened. Connecting to an address cannot land elsewhere, so it looks redundant -- it is the
+    opened. Connecting to an address cannot land elsewhere, so it looks redundant. It is the
     cheapest possible answer to everything between this process and the wire.
 
     Args:
@@ -254,7 +254,7 @@ class SafeBackend(httpcore.NetworkBackend):
     """An httpcore network backend that connects only to addresses it validated.
 
     This is the seam. It resolves once, checks every answer against the policy, and connects to
-    one of the answers it checked -- so a record that moves between the check and the connection
+    one of the answers it checked, so a record that moves between the check and the connection
     moves nothing.
 
     It is public because a caller assembling their own :class:`httpcore.ConnectionPool` needs it,
@@ -295,7 +295,7 @@ class SafeBackend(httpcore.NetworkBackend):
             timeout: Seconds to wait for the connection.
             local_address: Address to bind before connecting.
             socket_options: ``setsockopt`` triples to apply. Applied to the socket **before**
-                it is connected, which the asynchronous backend cannot do -- see the module
+                it is connected, which the asynchronous backend cannot do. See the module
                 docstring.
 
         Returns:
@@ -306,7 +306,7 @@ class SafeBackend(httpcore.NetworkBackend):
             BlockedAddressError: If the name resolves to nothing permitted.
             ConnectTimeout: If the connection timed out, matching what httpcore raises.
             ConnectError: If the name does not resolve, or every validated address refused the
-                connection -- again matching httpcore, so httpx maps it as it always has.
+                connection, again matching httpcore, so httpx maps it as it always has.
         """
         _check_port(self.policy, port)
         target = _origin_target(host, port)
@@ -346,7 +346,7 @@ class SafeBackend(httpcore.NetworkBackend):
 
         Raises:
             BlockedURLError: Always. There is no ``allow_`` flag for this, because the question
-                a policy answers -- may this process reach this address -- has no meaning for a
+                a policy answers, may this process reach this address, has no meaning for a
                 path in the filesystem, and a guard that waved it through would be reporting a
                 decision it never made.
         """
@@ -357,8 +357,8 @@ class SafeTransport(httpx.HTTPTransport):
     """An httpx transport that connects only to addresses it validated.
 
     **A transport is not a client, and that gap is a real one.** Passing this to
-    ``httpx.Client(transport=...)`` does neutralise ``HTTP_PROXY`` -- httpx computes
-    ``allow_env_proxies = trust_env and transport is None`` -- but an explicit ``proxy=`` or
+    ``httpx.Client(transport=...)`` does neutralise ``HTTP_PROXY``, since httpx computes
+    ``allow_env_proxies = trust_env and transport is None``, but an explicit ``proxy=`` or
     ``mounts=`` on the client builds a *separate* transport that ``_transport_for_url`` prefers,
     and a request routed to it never reaches this one. Measured, not deduced. A client that owns
     its own construction is the answer to that, and it is the documented entry point; this class
@@ -420,7 +420,7 @@ class SafeTransport(httpx.HTTPTransport):
                 not retried: it is not a ``ConnectError``, which is what httpcore counts.
             socket_options: ``setsockopt`` triples applied to every connection. **When**
                 they are applied differs between the synchronous and asynchronous
-                clients, and it matters for some options -- see the module docstring.
+                clients, and it matters for some options. See the module docstring.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.
@@ -456,7 +456,7 @@ class SafeTransport(httpx.HTTPTransport):
             return
         # **Replaced rather than reached into.** `httpcore.ConnectionPool` takes the backend as
         # a constructor argument, so this uses public API and fails loudly if that argument ever
-        # goes away -- where swapping the pool's private backend attribute would fail silently,
+        # goes away, where swapping the pool's private backend attribute would fail silently,
         # by pinning nothing and saying nothing.
         self._pool = httpcore.ConnectionPool(
             ssl_context=ssl_context,
@@ -475,7 +475,7 @@ class SafeTransport(httpx.HTTPTransport):
         """Check the whole URL, then send the request.
 
         This is where the scheme, the port, credentials in the authority and the shape of the
-        host are decided, because it is the last place a URL exists -- the backend below is
+        host are decided, because it is the last place a URL exists: the backend below is
         handed a host and a port and never learns which scheme they belong to. It runs once per
         request rather than once per connection, so a redirect hop is checked even when it
         travels over a connection that is already open.
@@ -496,7 +496,7 @@ class SafeTransport(httpx.HTTPTransport):
 
 #: What ``httpx.Client`` accepts that only configures the transport it would otherwise have
 #: built. **Handing these to a client that was given a transport does nothing at all**, silently,
-#: which for ``verify`` is a security-relevant no-op -- so :class:`Client` routes them to the
+#: which for ``verify`` is a security-relevant no-op, so :class:`Client` routes them to the
 #: transport it builds rather than passing them on to httpx.
 _TRANSPORT_OPTIONS = frozenset(
     {"verify", "cert", "http1", "http2", "limits", "local_address", "retries", "socket_options"}
@@ -530,7 +530,7 @@ def _environment_proxy(*, trust_env: bool) -> str | None:
     """Find a proxy the environment would apply, if there is one.
 
     Asked with httpx's own parser rather than by reading ``HTTP_PROXY`` here, so ``NO_PROXY``
-    means exactly what it means to httpx -- including ``NO_PROXY=*``, which switches the
+    means exactly what it means to httpx, ``NO_PROXY=*`` included, which switches the
     environment off entirely and must not produce a refusal.
 
     Args:
@@ -637,8 +637,8 @@ class Client(httpx.Client):
     """An httpx client that connects only to addresses it validated.
 
     This is the entry point, and it is a client rather than a transport for one measured reason.
-    ``httpx.Client(transport=SafeTransport(...))`` does neutralise ``HTTP_PROXY`` -- httpx
-    computes ``allow_env_proxies = trust_env and transport is None`` -- but an explicit
+    ``httpx.Client(transport=SafeTransport(...))`` does neutralise ``HTTP_PROXY``, since httpx
+    computes ``allow_env_proxies = trust_env and transport is None``, but an explicit
     ``proxy=`` or ``mounts=`` builds a *separate* transport that ``_transport_for_url`` prefers,
     and the request never reaches the guarded one. A class that owns its own construction is the
     only place that can be refused::
@@ -650,7 +650,7 @@ class Client(httpx.Client):
 
     It also closes a quieter trap. ``verify``, ``cert``, ``http1``, ``http2`` and ``limits``
     configure the transport httpx *would have built*, so passing them to a client that was given
-    a transport does nothing -- silently, and for ``verify`` that means a caller believing they
+    a transport does nothing, silently, and for ``verify`` that means a caller believing they
     configured certificate verification when they did not. They are routed to the transport here.
 
     Attributes:
@@ -678,7 +678,7 @@ class Client(httpx.Client):
                 whichever of the two it actually configures.
 
         Raises:
-            TypeError: If the arguments cannot be reconciled -- neither a policy nor a transport,
+            TypeError: If the arguments cannot be reconciled: neither a policy nor a transport,
                 both, a transport that is not a guarded one, or an option neither httpx nor this
                 package knows. An unknown option is refused rather than dropped, because httpx
                 growing a new way to route a request is a decision for this class rather than
@@ -728,7 +728,7 @@ class Client(httpx.Client):
 
         httpx already drops ``Authorization`` and reads cookies from its own jar rather than
         from the outgoing request. This widens that to whatever the caller told the policy is a
-        credential -- an ``X-Api-Key`` is a credential by convention rather than by
+        credential. An ``X-Api-Key`` is a credential by convention rather than by
         specification, so it is named by the caller who uses it rather than guessed at here.
 
         Args:
@@ -746,8 +746,8 @@ class Client(httpx.Client):
 class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
     """The same seam for the async client, with the blocking half kept off the event loop.
 
-    ``socket.getaddrinfo`` blocks and has no timeout -- ``socket.setdefaulttimeout`` does not
-    apply to it -- so a hostile authoritative server can stall a lookup for as long as it likes.
+    ``socket.getaddrinfo`` blocks and has no timeout, and ``socket.setdefaulttimeout`` does not
+    apply to it, so a hostile authoritative server can stall a lookup for as long as it likes.
     On the synchronous path that is the caller's to supervise. Here it is not: a backend that
     resolved inline would stall **the whole event loop**, so one hostile hostname would freeze
     every unrelated request in the process. That turns a security library into an outage, which
@@ -755,19 +755,19 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
 
     So resolution runs in a worker thread through ``anyio.to_thread.run_sync``. anyio rather
     than ``loop.getaddrinfo`` because httpx supports trio as well as asyncio, and
-    ``loop.getaddrinfo`` exists on only one of them -- and because anyio is already a hard
+    ``loop.getaddrinfo`` exists on only one of them, and because anyio is already a hard
     dependency of httpx, so it costs nothing.
 
     **The connection is anyio's, and it is handed an address rather than a name.** Measured:
     ``anyio.connect_tcp`` given something ``ipaddress`` can parse skips name resolution
-    altogether -- it takes the family and the compressed form and connects. The stream that
+    altogether: it takes the family and the compressed form and connects. The stream that
     comes back is wrapped in httpcore's own ``AnyIOStream``, so ``start_tls`` is again httpcore's
     code and this module has no ``server_hostname`` to get wrong.
 
     One thing is *not* the same as the synchronous path and is worth knowing. There is the whole
     ``sockaddr`` was passed to the socket untouched; here the address is handed to anyio, which
-    rebuilds it. A scope identifier survives -- it is part of an ``IPv6Address`` and of its
-    compressed form -- and a flow label does not. There is no public way to hand an
+    rebuilds it. A scope identifier survives, because it is part of an ``IPv6Address`` and of
+    its compressed form, and a flow label does not. There is no public way to hand an
     already-connected socket to an anyio stream, so the alternative was writing the stream, and
     with it the ``server_hostname`` line that this seam exists not to have.
 
@@ -803,7 +803,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             timeout: Seconds to wait for the connection.
             local_address: Address to bind before connecting.
             socket_options: ``setsockopt`` triples to apply. Applied **after** the connection
-                is up, because anyio owns socket creation -- so an option that only means
+                is up, because anyio owns socket creation, so an option that only means
                 something on an unconnected socket is a no-op here and is not on the
                 synchronous client. See the module docstring.
 
@@ -845,7 +845,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         dual-stack host is routinely unreachable, and a guard that gives up there becomes a
         support burden and then gets removed. It is only safe because a partially-denied name
         never reaches this. **A timed-out attempt is failed over from too**, which the first
-        version of this did not do -- it raised on the first timeout while the synchronous path
+        version of this did not do: it raised on the first timeout while the synchronous path
         moved on, so the two clients disagreed about a host that answers with one dead address
         and one live one.
 
@@ -858,7 +858,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             timeout: Seconds to wait per attempt.
             local_address: Address to bind before connecting.
             socket_options: ``setsockopt`` triples to apply. Applied **after** the connection
-                is up, because anyio owns socket creation -- so an option that only means
+                is up, because anyio owns socket creation, so an option that only means
                 something on an unconnected socket is a no-op here and is not on the
                 synchronous client. See the module docstring.
 
@@ -990,7 +990,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             retries: Connection retries, as httpcore counts them.
             socket_options: ``setsockopt`` triples applied to every connection. **When**
                 they are applied differs between the synchronous and asynchronous
-                clients, and it matters for some options -- see the module docstring.
+                clients, and it matters for some options. See the module docstring.
 
         Raises:
             ProxyUnsupportedError: If a proxy is configured and ``policy.allow_proxy`` is off.

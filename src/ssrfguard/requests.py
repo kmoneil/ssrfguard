@@ -13,8 +13,8 @@ for precisely this purpose.* **It does not.** From ``urllib3/connection.py``::
     def host(self, value: str) -> None:
         self._dns_host = value
 
-``.host`` is *derived from* ``_dns_host``. The split exists for trailing dots -- the property's
-own docstring says so -- so writing an address into ``_dns_host`` writes it into ``.host`` too,
+``.host`` is *derived from* ``_dns_host``. The split exists for trailing dots, as the property's
+own docstring says, so writing an address into ``_dns_host`` writes it into ``.host`` too,
 and ``HTTPSConnection.connect`` reads ``server_hostname`` straight off ``.host``. Measured
 against a loopback server holding a certificate for one name while the connection is pinned to
 127.0.0.1, that produces three outcomes and none of them is the one that was intended:
@@ -26,7 +26,7 @@ against a loopback server holding a certificate for one name while the connectio
   approach quietly fails open; it is that it fails loudly and the nearest thing that makes it
   work again turns hostname verification off entirely.
 * ``assert_hostname=<the hostname>`` restores the name check, and the request still leaves with
-  ``Host: 127.0.0.1:<port>`` and an IP in the SNI extension -- so name-based virtual hosting
+  ``Host: 127.0.0.1:<port>`` and an IP in the SNI extension, so name-based virtual hosting
   breaks and the pinned address leaks into the request.
 
 ``tests/test_requests_adapter.py`` holds all three as a regression. They are properties of
@@ -34,7 +34,7 @@ urllib3 rather than of this package, and nothing here would notice them changing
 
 **The seam is** :meth:`urllib3.connection.HTTPConnection._new_conn`. It is the only place the
 address is used: it resolves ``_dns_host`` and returns a socket, and everything downstream --
-TLS, the ``Host:`` header, the audit event -- reads ``.host``, which it never touches.
+TLS, the ``Host:`` header and the audit event, reads ``.host``, which it never touches.
 Overriding it to return a socket that is *already connected* to a validated address is
 therefore the whole of the change. Verifying a certificate against an IP address is not
 something this module has to remember not to do; there is no line in it that could.
@@ -48,7 +48,7 @@ path rather than a property of one function.
 
 **On importing requests at module scope.** The promise on the front of this package is that
 ``import ssrfguard`` loads no third-party module, and it is kept by ``ssrfguard/__init__.py``
-not importing this module -- not by deferring the import inside it. Anyone who has reached
+not importing this module, rather than by deferring the import inside it. Anyone who has reached
 ``ssrfguard.requests`` has requests installed by definition. The `zero-deps` lane checks the
 promise that matters by importing the package in an interpreter where neither client exists.
 """
@@ -87,7 +87,7 @@ def _origin(scheme: str, host: str, port: int) -> str:
 
     Args:
         scheme: The pool's scheme, which decides what the policy allows.
-        host: The name urllib3 was about to resolve -- ``_dns_host``, trailing dot and all.
+        host: The name urllib3 was about to resolve: ``_dns_host``, trailing dot and all.
         port: The port it was about to connect to.
 
     Returns:
@@ -106,7 +106,7 @@ def _pinned_socket(
     policy: Policy,
     resolver: Resolver | None,
 ) -> socket.socket:
-    """Resolve, validate, and connect -- the only place this adapter chooses an address.
+    """Resolve, validate, and connect: the only place this adapter chooses an address.
 
     The host is taken from ``_dns_host`` rather than from ``.host`` because ``_dns_host`` is
     what urllib3 itself would have handed to ``getaddrinfo``: it keeps a trailing dot, which is
@@ -114,8 +114,8 @@ def _pinned_socket(
     that is actually about to be looked up is what leaves no gap between the two.
 
     The whole URL check runs here, not only the address check, and that is deliberate. It costs
-    nothing -- it is pure, and it happens once per new connection rather than once per request
-    -- and it means the scheme and the port are enforced by the function that creates the
+    nothing, because it is pure and it happens once per new connection rather than once per
+    request, and it means the scheme and the port are enforced by the function that creates the
     socket. A pool reached by some route that never went through :meth:`SafeAdapter.send` is
     still bound by the policy.
 
@@ -136,8 +136,8 @@ def _pinned_socket(
             so pinning it would validate the wrong host and report success. Unreachable through
             :class:`SafeAdapter`, which refuses a proxy before a connection is made; this is
             what makes the refusal a property of the socket rather than of the call path.
-        BlockedURLError: If the origin is not permitted -- its scheme, its port, or a literal
-            address the policy denies.
+        BlockedURLError: If the origin is not permitted, whether its scheme, its port, or a
+            literal address the policy denies.
         BlockedAddressError: If the name resolves to nothing permitted.
         NameResolutionError: If the name does not resolve, matching what urllib3 raises.
         ConnectTimeoutError: If the connection timed out, matching what urllib3 raises.
@@ -256,7 +256,7 @@ class SafeAdapter(HTTPAdapter):
 
     Mount it on a session, or let :class:`Session` do that. Every connection this adapter opens
     resolves the name once, checks every answer against the policy, and connects to one of the
-    answers it checked -- so a record that moves between the check and the connection moves
+    answers it checked, so a record that moves between the check and the connection moves
     nothing.
 
     What is *not* covered is worth stating plainly, because an adapter is only mounted against
@@ -334,8 +334,8 @@ class SafeAdapter(HTTPAdapter):
         # rather than a reach into an internal.
         #
         # **Replaced, never mutated.** `PoolManager.__init__` assigns the module-level table
-        # itself rather than a copy of it -- unlike the key table on the line below it, which
-        # it does copy -- so writing a key into the manager's mapping would rewrite urllib3's
+        # itself rather than a copy of it, unlike the key table on the line below it, which
+        # it does copy, so writing a key into the manager's mapping would rewrite urllib3's
         # default for every other client in the process.
         #
         # The ignore is a limitation in one of the two type checkers rather than a doubt about
@@ -362,7 +362,7 @@ class SafeAdapter(HTTPAdapter):
 
         A proxy resolves the target itself and opens the socket to it. Pinning happens in this
         process and the proxy is not in it, so a request sent through one is a request this
-        adapter cannot make any promise about -- and requests would route it through a pool
+        adapter cannot make any promise about, and requests would route it through a pool
         manager of its own, which has never heard of the policy. Refusing is the honest answer;
         ``allow_proxy=True`` on the policy accepts that enforcement has moved to the proxy.
 
@@ -401,8 +401,8 @@ class Session(requests.Session):
     """A ``requests`` session that connects only to addresses it validated.
 
     This is the entry point. It is a :class:`requests.Session` with a :class:`SafeAdapter`
-    mounted on both schemes, so everything a session does -- redirects, retries, pooled
-    connections, ``Session.request`` and the verb helpers -- goes through the seam::
+    mounted on both schemes, so everything a session does goes through the seam: redirects,
+    retries, pooled connections, ``Session.request`` and the verb helpers::
 
         >>> from ssrfguard import Policy
         >>> from ssrfguard.requests import Session

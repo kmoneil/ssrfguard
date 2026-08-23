@@ -4,8 +4,8 @@
 module is shaped the way it is. Every SSRF advisory of 2026 describes the same code: a validator
 that inspected a URL, approved it, and handed back something an HTTP client would accept. The
 guard was not wrong; the *next line of code* was the vulnerability. mcp-atlassian's advisory puts
-it exactly -- "the guard validates an IP it then discards; the connection re-resolves an unpinned
-hostname" -- and crewAI's `validate_url` "resolves and blocklists the supplied hostname once,
+it exactly: "the guard validates an IP it then discards; the connection re-resolves an unpinned
+hostname". crewAI's `validate_url` "resolves and blocklists the supplied hostname once,
 then returns the original URL string".
 
 So :meth:`Policy.check_url` returns a :class:`Target`, which is deliberately awkward to misuse.
@@ -13,8 +13,8 @@ It is an origin to connect to, not a request to make: it carries no path, no que
 and it will not render as a URL. The only thing that consumes it is resolution.
 
 What this layer *can* decide is real and worth having: the scheme, the port, whether credentials
-are riding in the authority, whether the host is well-formed, and -- when the host is a literal
-address rather than a name -- whether that address is permitted, with no DNS involved at all.
+are riding in the authority, whether the host is well-formed, and, when the host is a literal
+address rather than a name, whether that address is permitted, with no DNS involved at all.
 """
 
 from __future__ import annotations
@@ -44,25 +44,25 @@ _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 
 # urlsplit *silently strips* tab, newline and carriage return from anywhere in a URL, so the
 # string a caller validated is not the string it parsed. That is a parser differential waiting
-# to happen: another component -- a browser, a log sink, a second library -- may split the same
+# to happen: another component, a browser or a log sink or a second library, may split the same
 # bytes differently. Refused outright rather than normalised, because a URL containing a control
 # character was not written by anything legitimate.
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x20\x7f]")
 
 # A hostname after normalisation: labels of letters, digits and hyphens, separated by dots, with
-# an optional trailing dot. Deliberately narrow -- anything an A-label cannot contain is either
+# an optional trailing dot. Deliberately narrow: anything an A-label cannot contain is either
 # an encoding attempt or a typo, and both should stop here.
 _HOSTNAME = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9-]{1,63}\.?$", re.I)
 
 # A host made only of digits and dots. Every one of these is either a valid IP literal, which is
-# handled as an address, or an encoded one -- `0177.0.0.1`, `2130706433`, `127.1`. No registered
+# handled as an address, or an encoded one such as `0177.0.0.1`, `2130706433` or `127.1`. No
 # hostname has this shape: RFC 3696 rules out an all-numeric top-level label.
 _NUMERIC_SHAPED = re.compile(r"^[0-9.]+$")
 
 
 @dataclass(frozen=True)
 class Target:
-    """An origin that survived the policy check -- not a URL, and not a substitute for one.
+    """An origin that survived the policy check, not a URL and not a substitute for one.
 
     A ``Target`` carries the scheme, the host and the port, and nothing else. The path, the
     query and the fragment are dropped on purpose: this type exists to be resolved and connected
@@ -70,14 +70,14 @@ class Target:
     SSRF advisory in this package's README describes.
 
     :meth:`__str__` renders a debug form rather than a URL for the same reason, and
-    :meth:`__repr__` renders the same one -- a dataclass's generated repr is what actually
+    :meth:`__repr__` renders the same one, because a dataclass's generated repr is what actually
     reaches logs and tracebacks, so leaving it in place would have meant the careful rendering
     was the one nobody ever saw. There is no ``geturl``, no ``__fspath__`` and no ``url``
     attribute, and there will not be.
 
     Attributes:
         scheme: Lowercased scheme, guaranteed to be in the policy's allowed set.
-        host: The host as the resolver will see it -- an A-label, so an internationalised name
+        host: The host as the resolver will see it, an A-label, so an internationalised name
             arrives here already punycoded. This is also the name TLS must verify against.
         port: The port, explicit or defaulted from the scheme.
         host_as_written: The host exactly as the caller supplied it, before normalisation. Kept
@@ -106,7 +106,7 @@ class Target:
         """Render the same debug form :meth:`__str__` does.
 
         The dataclass default spells every field out, and **that** is the rendering that reaches
-        a log line, a traceback, a REPL and any container a target is printed inside -- so
+        a log line, a traceback, a REPL and any container a target is printed inside, so
         leaving it in place meant the form this class was designed to show was the one form
         nobody saw. Defining it here rather than passing ``repr=False`` keeps one rendering
         instead of two that have to be kept in agreement.
@@ -169,12 +169,12 @@ class Policy:
             ``64:ff9b::7f00:1`` and ``64:ff9b::a9fe:a9fe``, which are loopback and the metadata
             endpoint behind a NAT64 gateway, and the allowlist is consulted before the table gets
             to decode them. Allow the embedded IPv4 range instead. An entry that merely
-            *contains* a translation prefix -- ``::/0`` -- is honoured, because at that breadth
+            *contains* a translation prefix, such as ``::/0``, is honoured, because at that breadth
             the caller asked for everything and is entitled to get it.
 
             An entry does **not** carry across address families: ``10.0.0.0/8`` does not permit
             ``::ffff:10.0.0.1``, because the check compares versions and the mapped form is
-            version 6. That direction over-denies, so it stands -- a caller who wants the mapped
+            version 6. That direction over-denies, so it stands; a caller who wants the mapped
             form says so.
         allowed_ports: Ports a URL may name. The default pair is the one most callers want and
             the one most likely to be widened; the refusal names both the port and this field.
@@ -192,15 +192,15 @@ class Policy:
             ``0`` means **a redirect is refused**, not "redirects are not followed", and the
             difference shows at the boundary: a single ``302`` raises :class:`
             ~ssrfguard.TooManyRedirectsError` even when the caller switched following off at the
-            client. Both clients build the next request in order to expose it -- httpx as
-            ``response.next_request``, requests as ``response.next`` -- and the cap fires on the
+            client. Both clients build the next request in order to expose it, httpx as
+            ``response.next_request`` and requests as ``response.next``, and the cap fires on the
             build. To receive a redirect without following it, leave this at its default and
             switch following off at the call; to refuse one, set this to ``0``.
         max_connection_attempts: How many of a name's validated addresses to try before giving
             up. **This exists because ``timeout`` is per attempt and the answer count is not
             ours to choose.** A name whose authoritative server returns two hundred addresses,
             every one of them permitted by the policy and every one of them silently dropping
-            packets, costs two hundred times the timeout the caller asked for -- one request,
+            packets, costs two hundred times the timeout the caller asked for: one request,
             one held worker, no log line that reads as an attack. Four keeps the dual-stack
             failover that is the reason for trying more than one at all, and bounds the cost at
             four times what was asked for.
@@ -216,14 +216,14 @@ class Policy:
             before anything that scans the string.
 
             **This is a ceiling, not a ReDoS fix.** Measured across four octaves, ``check_url``
-            is strictly linear on both paths -- doubling the input doubles the time, and
+            is strictly linear on both paths, since doubling the input doubles the time, and
             ``_HOSTNAME`` cannot backtrack because every repetition in it must consume a literal
             dot. What it did not have was a bound: the non-ASCII path costs about 1.9
             microseconds per character, because the ``idna`` codec runs nameprep per label, so a
             10MB URL was about 19 CPU-seconds of one worker. ``SECURITY.md`` says any way one
             request can consume wall-clock without a ceiling is in scope, and this had none.
 
-            8192 because that is where nginx, Apache and IIS converge for a request line -- a
+            8192 because that is where nginx, Apache and IIS converge for a request line, a
             number a caller can recognise rather than one this package invented.
     """
 
@@ -287,24 +287,24 @@ class Policy:
 
         ``check_address`` consults ``allowed_networks`` first and returns on a hit, so the table
         never gets the chance to decode. An entry *inside* a translated block therefore permits
-        every IPv4 destination embedded in it -- loopback and every metadata endpoint -- and
-        silently switches off the single most important row in the shipped table.
+        every IPv4 destination embedded in it, loopback and every metadata endpoint included,
+        and silently switches off the single most important row in the shipped table.
 
         **The test is the table's own longest-prefix rule, and getting that wrong is how this
         check produces false refusals.** The question is not "does this entry touch a translated
         block" but "is a translated block what would *decide* these addresses". Two cases make
         the difference concrete:
 
-        * ``::1/128`` sits inside ``::/96``, the deprecated IPv4-compatible wrapper -- but
+        * ``::1/128`` sits inside ``::/96``, the deprecated IPv4-compatible wrapper, but
           ``::1/128`` has its own, more specific row, so the wrapper never decides it. Allowing
           IPv6 loopback is an ordinary thing to do and refusing it would be a wrong deny.
         * ``::/96`` itself has no more specific row covering the whole of it, so the wrapper
           *is* the decider, and an entry for it permits ``::7f00:1`` undecoded.
 
-        An entry merely *containing* a wrapper -- ``::/0``, ``2000::/3`` -- is somebody painting
-        with a roller, and at that breadth "you get what is in it" is the honest reading rather
-        than a surprise. Refusing those would break the deliberate off-switch this class
-        documents, and a control with no off switch gets replaced by no control at all.
+        An entry merely *containing* a wrapper, such as ``::/0`` or ``2000::/3``, is somebody
+        painting with a roller, and at that breadth "you get what is in it" is the honest
+        reading rather than a surprise. Refusing those would break the deliberate off-switch
+        this class documents, and a control with no off switch gets replaced by no control at all.
 
         Refused here rather than at the address that needed it, which is where every other
         unsatisfiable field in this class is refused: a typo in a configuration file should
@@ -318,7 +318,7 @@ class Policy:
             if block is not None and block.reach is Reach.TRANSLATED:
                 raise ValueError(
                     f"allowed_networks contains {network}, which overlaps {block.network} "
-                    f"({block.name}, {block.rfc}) -- a prefix that carries an IPv4 destination "
+                    f"({block.name}, {block.rfc}), a prefix that carries an IPv4 destination "
                     f"inside it. An explicit allow beats the denied table, so this would permit "
                     f"every address embedded in that prefix without decoding any of them, "
                     f"including loopback and the cloud metadata endpoints. To reach specific "
@@ -327,7 +327,7 @@ class Policy:
                     f"allowed_networks entry wide enough to cover this"
                 )
 
-    # -- addresses -------------------------------------------------------------------------
+    # addresses ----------
 
     def check_address(self, address: str | IPAddress) -> None:
         """Decide whether an address may be connected to.
@@ -362,13 +362,13 @@ class Policy:
             return False
         return True
 
-    # -- URLs ------------------------------------------------------------------------------
+    # URLs ----------
 
     def check_url(self, url: str) -> Target:
         """Decide everything about a URL that can be decided without the network.
 
         **This is necessary and it is not sufficient.** A URL that survives here has a permitted
-        scheme, a permitted port, no credentials in its authority and a well-formed host -- and
+        scheme, a permitted port, no credentials in its authority and a well-formed host, and
         if that host was a literal address, that address is permitted too. What it does *not*
         have is any guarantee about where a *name* points, because nothing here resolves
         anything. Hand the result to resolution; do not hand it to an HTTP client.
@@ -409,7 +409,7 @@ class Policy:
         """Refuse a URL before anything reads it.
 
         **First, and that is the whole point.** Every other check here scans the string at least
-        once -- the control-character search, ``urlsplit``, the ``idna`` codec -- so a ceiling
+        once, whether the control-character search, ``urlsplit`` or the ``idna`` codec, so a ceiling
         applied after any of them is a ceiling that already paid for the thing it was meant to
         prevent. ``len`` is the one question that costs nothing to ask.
 
@@ -445,7 +445,7 @@ class Policy:
             raise BlockedURLError(
                 url,
                 f"contains the control character {found.group()!r} at offset {found.start()}, "
-                f"which urlsplit strips silently -- so the URL that was checked would not be "
+                f"which urlsplit strips silently, so the URL that was checked would not be "
                 f"the URL that was parsed",
             )
 
@@ -513,7 +513,7 @@ class Policy:
         """Normalise and check the host.
 
         Normalisation uses the ``idna`` codec, which is the same transformation CPython's
-        ``socket.getaddrinfo`` applies internally -- so the name checked here is exactly the name
+        ``socket.getaddrinfo`` applies internally, so the name checked here is exactly the name
         that will be resolved, and the two cannot disagree. It is also what turns
         ``①②⑦.0.0.1`` into ``127.0.0.1`` and ``ⓁⓄⒸⒶⓁⒽⓄⓈⓉ`` into ``localhost`` before anything
         looks at them.
@@ -547,7 +547,7 @@ class Policy:
             raise BlockedURLError(
                 url,
                 f"host {host!r} is made only of digits and dots but is not a valid address, so "
-                f"it is an encoded one -- no registered hostname has this shape",
+                f"it is an encoded one; no registered hostname has this shape",
             )
         if not _HOSTNAME.match(host):
             raise BlockedURLError(url, f"host {host!r} is not a well-formed hostname")
@@ -597,7 +597,7 @@ def _normalise(url: str, host: str) -> str:
 
     Raises:
         BlockedURLError: If the name cannot be encoded, which is also how it would fail to
-            resolve -- an over-long label, an empty one, a disallowed codepoint.
+            resolve: an over-long label, an empty one, a disallowed codepoint.
     """
     if host.isascii():
         return host.lower()
@@ -632,7 +632,7 @@ def _deciding_block(table: AddressTable, network: IPNetwork) -> Block | None:
     """Find the block that decides every address in a network, if one block decides them all.
 
     :meth:`AddressTable.match` answers this for a single address. A whole network needs the
-    stronger question -- the most specific block containing *all* of it -- because a block that
+    stronger question, the most specific block containing *all* of it, because a block that
     covers only part of a range is not what that range's other addresses resolve against.
 
     Args:
@@ -656,7 +656,7 @@ def _literal_address(host: str) -> IPAddress | None:
 
     Returns:
         The address, or ``None`` if the host is a name. Python's parser rejects the legacy
-        encodings -- leading zeros, bare integers, short forms -- so those come back ``None``
+        encodings of leading zeros, bare integers and short forms, so those come back ``None``
         here and are refused by the numeric-shape check instead.
     """
     try:

@@ -41,14 +41,14 @@ SockAddr = tuple[Any, ...]
 ResolverAnswer = tuple[int, int, int, str, SockAddr]
 
 #: The shape of ``socket.getaddrinfo``. Accepted by :func:`resolve` so that tests can drive it
-#: without a network, and so that a caller who already has an answer -- from a resolver they
-#: trust, or from a fixture -- can supply it. **Every address it returns is validated before it
+#: without a network, and so that a caller who already has an answer, from a resolver they
+#: trust or from a fixture, can supply it. **Every address it returns is validated before it
 #: is used**, so a resolver that lies about where a name points buys nothing.
 #:
 #: The *port* in the sockaddr is a narrower claim and is written out because the sentence above
 #: would otherwise be read as covering it. It is carried through as the resolver gave it, not
 #: re-checked against ``allowed_ports``. ``socket.getaddrinfo`` echoes the port it was handed,
-#: so the two can only disagree for a stand-in the caller installed themselves -- which makes
+#: so the two can only disagree for a stand-in the caller installed themselves, which makes
 #: this the caller's trust to place rather than a boundary this function defends.
 Resolver = Callable[..., Iterable[ResolverAnswer]]
 
@@ -104,7 +104,7 @@ def _addresses_from(infos: Iterable[ResolverAnswer], hostname: str) -> tuple[Add
         hostname: The name that was looked up.
 
     Returns:
-        One :class:`Address` per distinct answer, preserving the resolver's ordering -- which is
+        One :class:`Address` per distinct answer, preserving the resolver's ordering, which is
         not arbitrary: ``getaddrinfo`` already applies RFC 6724 destination-address selection,
         and reordering here would discard a decision the platform made better than we can.
 
@@ -170,7 +170,7 @@ def _refuse_partial(
     refused = "; ".join(f"{address.ip} ({why})" for address, why in denied)
     raise BlockedAddressError(
         target.host,
-        f"resolves to both permitted and denied addresses -- permitted: {allowed}; "
+        f"resolves to both permitted and denied addresses; permitted: {allowed}; "
         f"denied: {refused}. A name that resolves both ways is the signature of a DNS "
         f"rebinding attempt rather than of a misconfiguration, so on_partial_block='reject' "
         f"refuses the whole name. Set on_partial_block='drop' to use only the permitted "
@@ -184,7 +184,7 @@ def resolve(
     """Resolve an origin and validate every answer.
 
     Performs **one** lookup. The addresses returned are the addresses that were checked, and
-    :func:`ssrfguard.connect` uses them directly -- there is no second resolution anywhere in
+    :func:`ssrfguard.connect` uses them directly. There is no second resolution anywhere in
     this package, which is the whole of its argument.
 
     A target carrying a literal address is not resolved at all. It is re-validated, because a
@@ -215,7 +215,7 @@ def resolve(
         one of them.** On the synchronous path this is a known denial-of-service surface,
         documented in ``SECURITY.md`` as out of scope, and it is the caller's to supervise: a
         stalled call holds up the caller that made it. On the asynchronous path it is not out of
-        scope, because a stalled call would hold up *every* task in the process -- so
+        scope, because a stalled call would hold up *every* task in the process, so
         ``ssrfguard.httpx.AsyncClient`` never calls this on the event loop. It runs it in a
         worker thread, and a test asserts a concurrent task keeps being scheduled while a lookup
         blocks.
