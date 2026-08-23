@@ -133,6 +133,13 @@ All notable changes to this project are documented here. The format follows
   still holds: a unix socket is refused only where one can be asked for (urllib3 has no such
   path), and the low-level object is enough for requests but not for httpx (requests hands the
   adapter the merged proxy mapping; httpx builds a second transport and never consults ours).
+- **The `leaks` lane runs.** `tests/ssrfguard_leakcheck.py` is a pytest plugin, loaded by that
+  lane and by nothing else, which fails the test that leaves a socket open and names the peer it
+  was connected to. It compares open file descriptors rather than walking the object graph,
+  because a test that asserts on a refusal is holding a traceback that holds the socket — and it
+  collects and waits before reporting, because the far end of a loopback connection closes a
+  moment after this end does. Its own two assertions are checked by `tests/test_leakcheck.py`: a
+  leak check that has never caught anything is indistinguishable from one that cannot.
 - **The encoding corpus.** Thirteen ways of writing 127.0.0.1 that are not `127.0.0.1` — octal,
   decimal, hex, short form, a bare `0`, circled digits, the ideographic full stop U+3002, an
   IPv4-mapped address, a trailing dot — each asserted refused, and each asserted against the
