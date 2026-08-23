@@ -115,21 +115,33 @@ LANES: tuple[Lane, ...] = (
         name="fast",
         checks=(
             "the unit suite on the development interpreter, with both adapter extras present, "
-            "and the coverage floor -- 95% because an untested branch in an address table is an "
-            "address nobody has ever asked about"
+            "and the coverage floor -- **branch** coverage at 99%, because an untested branch in "
+            "an address table is an address nobody has ever asked about, and statement coverage "
+            "cannot see one"
         ),
         needs=(
             "uv sync --frozen --all-extras. This is the pre-push hook's lane, and the only one "
             "that measures coverage: it is a property of the codebase rather than of an "
             "interpreter, so measuring it once here beats five differing numbers across `compat`"
         ),
+        # **`--cov-branch` is the flag this lane's own rationale was always describing.** Without
+        # it the floor measured statements, and statement coverage cannot see a branch: both
+        # lines of an `if` execute, only one edge between them ever does. Measured -- the suite
+        # sat at 100% statements and 99% branches, and one of the two gaps was
+        # `AsyncClient(transport=...)`, a documented path on a shipped client surface that no
+        # test had ever constructed.
+        #
+        # 99 rather than 100 on purpose: a floor is a ratchet, not a dare. Pinning it at 100
+        # turns the next legitimate `# pragma: no cover` into a red build for a reason nobody
+        # will read, and this codebase is already above the line so the ratchet costs nothing.
         command=(
             "pytest",
             "-m",
             "not egress",
             "--cov=ssrfguard",
+            "--cov-branch",
             "--cov-report=term-missing:skip-covered",
-            "--cov-fail-under=95",
+            "--cov-fail-under=99",
         ),
     ),
     Lane(
