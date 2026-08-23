@@ -43,7 +43,7 @@ own:
   identifiers, and IDN forms that normalise to an address.
 - **Enforcement silently relocating.** If a proxy, a Unix socket, a mounted transport, or any
   other construction causes a request to leave the process without passing the policy, and the
-  library does not refuse, that is a vulnerability -- silent pass-through is worse than not
+  library does not refuse, that is a vulnerability. Silent pass-through is worse than not
   shipping.
 - **Credential and header leakage across a redirect**, including onto a host the policy allowed
   for a different reason.
@@ -77,8 +77,8 @@ These are scope decisions with reasons, not deflections.
 
   **The response body is not**, and the boundary is worth stating because the sentence above
   would otherwise cover it. Once a permitted host is reached, what it sends back is the client's
-  to bound -- `stream=True` and a read limit on requests, `client.stream()` on httpx -- and this
-  package does not sit in that path. The README says the same thing in its own words. A report
+  to bound, with `stream=True` and a read limit on requests or `client.stream()` on httpx, and
+  this package does not sit in that path. The README says the same thing in its own words. A report
   that a permitted host can return a large body is not a finding here; a report that *this*
   package holds memory or wall-clock without a ceiling is.
 
@@ -89,21 +89,21 @@ These are scope decisions with reasons, not deflections.
 - **A host you deliberately allowed, behaving badly within its own rights.** Adding a network to
   `allowed_networks` is an authorization decision you made.
 - **Vulnerabilities in httpx, requests or urllib3 themselves.** Those belong to their projects.
-  What is ours is how we integrate with them -- the seam, and every assumption we make about it.
+  What is ours is how we integrate with them: the seam, and every assumption we make about it.
 
 ## Supported versions
 
 Alpha. Only the latest release is supported, and there is no release yet. This section becomes a
 table when there is something to put in it.
 
-Python 3.10 and newer. A report against an interpreter below the floor is out of scope -- not
+Python 3.10 and newer. A report against an interpreter below the floor is out of scope. Not
 because old interpreters do not matter, but because this project cannot type-check or fully test
 one, and a support claim it cannot verify is worth nothing to the person relying on it.
 
 ## Provenance
 
-Releases are published to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
--- there is no long-lived API token in this repository -- and each artifact carries a signed
+Releases are published to PyPI via [Trusted Publishing](https://docs.pypi.org/trusted-publishers/),
+so there is no long-lived API token in this repository. Each artifact carries a signed
 [PEP 740](https://peps.python.org/pep-0740/) attestation naming the workflow that built it.
 
 Every release also carries a CycloneDX SBOM. It is nearly empty, which is the whole point: this
