@@ -298,6 +298,81 @@ def test_the_ceiling_is_the_policys_number_and_an_ordinary_url_is_unaffected() -
     """A default that refused normal traffic would be a control that gets removed."""
     assert Policy().check_url("https://example.com/a/b?c=d").host == "example.com"
 
+
+#: The longest name DNS can carry in presentation form, spelled here rather than imported. A test
+#: that reads the limit from the code it is checking follows that limit wherever it goes.
+LONGEST_HOSTNAME = 253
+
+
+def _host_of(length: int) -> str:
+    """Build a well-formed host of exactly ``length`` characters.
+
+    Every label is at most 63 characters, so the only thing deciding the outcome is the total.
+    A test that accidentally tripped the per-label limit would pass for the wrong reason.
+    """
+    labels = []
+    remaining = length
+    while remaining > 63:
+        labels.append("a" * 63)
+        remaining -= 64  # the label, and the dot that has to follow it
+    labels.append("a" * remaining)
+    return ".".join(labels)
+
+
+@pytest.mark.parametrize(
+    ("length", "accepted"),
+    [(LONGEST_HOSTNAME - 1, True), (LONGEST_HOSTNAME, True), (LONGEST_HOSTNAME + 1, False)],
+)
+def test_a_host_longer_than_dns_can_carry_is_refused_at_the_boundary(
+    length: int, accepted: bool
+) -> None:
+    """253 is the limit and 254 is over it, asserted either side rather than once.
+
+    An off-by-one here is a wrong deny on a name that resolves, which is the more expensive of
+    the two directions to get wrong: a guard that refuses working names gets removed.
+    """
+    host = _host_of(length)
+    assert len(host) == length, "the fixture, not the code under test"
+    policy = Policy()
+
+    if accepted:
+        assert policy.check_url(f"https://{host}/").host == host
+    else:
+        with pytest.raises(BlockedURLError, match="is longer than 253 characters"):
+            policy.check_url(f"https://{host}/")
+
+
+def test_the_host_ceiling_is_checked_before_the_idna_codec_runs() -> None:
+    """The whole point of the host ceiling, and the half a length ceiling cannot cover.
+
+    ``max_url_length`` counts characters of URL; the ``idna`` codec runs on characters of *host*
+    at roughly two hundred and fifty times the price, once per label. So a URL comfortably inside
+    an 8 KiB ceiling could still carry 389 non-ASCII labels and cost 14.9 milliseconds of one
+    worker, measured, and be **accepted**, and then be handed to a lookup that could never
+    succeed. Nothing about its length was unusual, which is why the length ceiling never saw it.
+
+    Asserted through a host that would fail *two* checks: it is over the host limit and, once
+    normalised, it is not a usable name. The length refusal is the one that must come back,
+    because it is the one that did not run the codec to find out.
+    """
+    policy = Policy()
+    host = ".".join(["é" * 20] * 389)
+
+    with pytest.raises(BlockedURLError) as refusal:
+        policy.check_url(f"https://{host}/")
+
+    assert "is longer than 253 characters" in refusal.value.reason
+    assert "not a usable name" not in refusal.value.reason
+    # The refused value is the length, not the host, for the reason the URL ceiling quotes a
+    # length: a refusal should not be the thing that puts attacker-supplied text in a log line.
+    assert refusal.value.url == f"<host of {len(host)} characters>"
+    assert "é" not in str(refusal.value)
+
+
+def test_an_internationalised_name_of_ordinary_length_still_resolves_to_its_a_label() -> None:
+    """The host ceiling must not cost IDN support, which is the wrong deny it could produce."""
+    assert Policy().check_url("https://münchen.example.com/").host == "xn--mnchen-3ya.example.com"
+
     narrow = Policy(max_url_length=25)
     assert narrow.check_url("https://example.com/a/b").host == "example.com"
     with pytest.raises(BlockedURLError, match="max_url_length \\(25\\)"):

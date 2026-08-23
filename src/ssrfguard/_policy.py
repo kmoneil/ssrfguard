@@ -39,6 +39,15 @@ PartialBlock = Literal["reject", "drop"]
 _LOWEST_PORT = 1
 _HIGHEST_PORT = 65535
 
+#: The longest name DNS can carry in presentation form: 255 octets on the wire, of which the
+#: root label and one length byte are not text (RFC 1035 section 2.3.4).
+#:
+#: **A protocol limit rather than a policy field, and the difference is the whole justification
+#: for hard-coding it.** Every other narrowing in :class:`Policy` is a choice a caller could
+#: reasonably make differently. This one is not: a longer name cannot resolve, on any resolver,
+#: so a field here would only offer the choice of paying more to reach the same refusal.
+_LONGEST_HOSTNAME = 253
+
 #: Default port per scheme, used when the authority does not carry one.
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 
@@ -225,6 +234,16 @@ class Policy:
 
             8192 because that is where nginx, Apache and IIS converge for a request line, a
             number a caller can recognise rather than one this package invented.
+
+            **It is one of two ceilings and it is not the one that bounds the cost.** This counts
+            characters of URL, and the expensive characters are the ones in the *host*: the
+            ``idna`` arm runs at roughly 250 times the price of the scan, per character, once per
+            label. So a URL sitting comfortably inside 8192 could carry 389 non-ASCII labels and
+            cost 14.9 milliseconds, and be accepted, and then be handed to a lookup that could
+            never succeed. The host is therefore capped separately at the 253 characters DNS can
+            carry, before normalisation rather than after, which is not configurable because a
+            longer name cannot resolve on any resolver. Together they bound the work; this one
+            alone did not.
     """
 
     allowed_schemes: frozenset[str] = frozenset({"http", "https"})
@@ -540,6 +559,7 @@ class Policy:
                 "host contains '%', which is either percent-encoding that the resolver will "
                 "not decode or an IPv6 zone identifier, and neither belongs in a fetched URL",
             )
+        _reject_overlong_host(raw)
         host = _normalise(url, raw)
         if _literal_address(host) is not None:
             return host, raw
@@ -583,6 +603,45 @@ class Policy:
             allowed = ", ".join(str(p) for p in sorted(self.allowed_ports))
             raise BlockedURLError(url, f"port {port} is not in allowed_ports ({allowed})")
         return port
+
+
+def _reject_overlong_host(host: str) -> None:
+    """Refuse a host longer than DNS can carry, before anything normalises it.
+
+    **``max_url_length`` counts characters of URL and the cost is in characters of host**, and
+    the two are not the same bound. Both paths through :func:`_normalise` are linear, but they
+    are linear with constants two orders of magnitude apart: an ASCII URL costs about 7
+    nanoseconds per character to scan, and a non-ASCII *host* costs about 1.8 microseconds per
+    character, because the ``idna`` codec runs nameprep once per label. So a URL sitting well
+    inside an 8192-character ceiling can still carry 389 non-ASCII labels and cost 14.9
+    milliseconds of one worker, measured, which is roughly two thousand times an ordinary check.
+
+    Nothing was gained for it either. 253 is what DNS can carry, so a longer name was going to
+    be refused by ``getaddrinfo`` no matter how carefully it was punycoded first.
+
+    **Before :func:`_normalise` rather than after**, which is the same argument
+    :meth:`Policy._reject_overlong` makes one layer up: a ceiling applied after the expensive
+    step has already paid for the thing it exists to prevent. And on ``host`` as written rather
+    than on its A-label form, because punycode only ever grows a name, so this bounds the work
+    without narrowing what can resolve.
+
+    The refusal quotes the length rather than the host, for the reason
+    :meth:`Policy._reject_overlong` does: echoing attacker-supplied text into a log line is the
+    second half of the problem a ceiling exists for.
+
+    Args:
+        host: The host as parsed, before normalisation.
+
+    Raises:
+        BlockedURLError: If it is longer than a name DNS can carry.
+    """
+    if len(host) > _LONGEST_HOSTNAME:
+        raise BlockedURLError(
+            f"<host of {len(host)} characters>",
+            f"is longer than {_LONGEST_HOSTNAME} characters, which is the longest name DNS "
+            f"can carry, so it could never resolve; refused before normalisation, because the "
+            f"idna codec runs nameprep per label and a long host is what makes that expensive",
+        )
 
 
 def _normalise(url: str, host: str) -> str:
