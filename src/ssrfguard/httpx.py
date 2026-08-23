@@ -73,7 +73,7 @@ from httpcore._backends.sync import SyncStream
 from httpx._client import _is_https_redirect, _same_origin
 from httpx._utils import get_environment_proxies
 
-from ssrfguard._connect import connect
+from ssrfguard._connect import connect, exhausted
 from ssrfguard._policy import Policy, Target, _literal_address
 from ssrfguard._resolve import Address, Resolver, resolve
 from ssrfguard.errors import (
@@ -847,6 +847,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         """
         attempted = addresses[: self.policy.max_connection_attempts]
         failures: list[str] = []
+        last: OSError | None = None
         # See the same variable in `ssrfguard._connect.connect`, whose reasoning this mirrors.
         only_timeouts = True
         for address in attempted:
@@ -858,11 +859,13 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             # Before `except OSError`, which it is a subclass of. Appended and continued rather
             # than raised, because a timed-out first answer is the ordinary dual-stack case and
             # giving up on it here would fail requests the synchronous client completes.
-            except TimeoutError:
+            except TimeoutError as timed_out:
                 failures.append(f"{address} (timed out)")
+                last = timed_out
                 continue
             except OSError as failed:
                 failures.append(f"{address} ({failed})")
+                last = failed
                 only_timeouts = False
                 continue
             try:
@@ -875,17 +878,16 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
                 raise
             return AnyIOStream(stream)
 
-        skipped = len(addresses) - len(attempted)
-        untried = (
-            ""
-            if not skipped
-            else f"; {skipped} further address(es) not tried "
-            f"(max_connection_attempts={self.policy.max_connection_attempts})"
+        message = exhausted(
+            failures, len(addresses) - len(attempted), self.policy.max_connection_attempts
         )
-        message = f"could not connect to any validated address: {'; '.join(failures)}{untried}"
+        # **`from last`, which this did not do.** The synchronous path chains the underlying
+        # `OSError`; this raised outside any `except`, so `__cause__` and `__context__` were both
+        # None and an operator reading the traceback got "could not connect to any validated
+        # address" with nothing under it. Two clients, one promise, and the diagnosis differed.
         raise (
             httpcore.ConnectTimeout(message) if only_timeouts else httpcore.ConnectError(message)
-        )
+        ) from last
 
     async def connect_unix_socket(
         self,

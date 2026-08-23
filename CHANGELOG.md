@@ -216,6 +216,15 @@ All notable changes to this project are documented here. The format follows
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
 
+- **The two failover loops share the message they raise, and the async one chains its cause.**
+  `connect()` and the async backend implement the same rule — try in order, cap the attempts,
+  say what was left untried — and the loops cannot merge because one drives a socket and the
+  other drives anyio. The *message* was a second copy, which is the half that drifts without
+  anyone noticing, so it is one function now. The async path also raised outside any `except`,
+  so `__cause__` and `__context__` were both `None` and an operator got "could not connect to any
+  validated address" with nothing underneath it; the sync path has always chained. A
+  synchronous-versus-asynchronous axis in the parity matrix asserts both, which is the axis that
+  file did not have.
 - **The registry generator no longer writes a network-fetched field into Python source
   unescaped.** `scripts/refresh_registry.py` hand-quoted three values from IANA's CSV, and
   `cidr` — unlike its sibling `name` — had its quotes neither stripped nor escaped, so a `"` in

@@ -22,6 +22,7 @@ from ipaddress import ip_address
 import pytest
 
 from ssrfguard import Address, BlockedAddressError, Policy, connect
+from ssrfguard._connect import exhausted
 
 LOOPBACK_OK = Policy(allowed_networks=("127.0.0.0/8", "::1/128"))
 
@@ -449,3 +450,22 @@ def test_a_timed_out_attempt_is_failed_over_from(monkeypatch: pytest.MonkeyPatch
         pass
 
     assert tried == ["127.0.0.1", "127.0.0.2"]
+
+
+def test_the_exhausted_message_is_one_function_both_clients_call() -> None:
+    """The half of failover that is pure, and the half that drifted.
+
+    The two loops cannot merge -- one drives a socket, the other drives anyio -- so this is
+    tested here as a function rather than only through both paths. `tests/test_adapter_parity.py`
+    asserts the two clients actually call it.
+    """
+    assert exhausted(["a (refused)", "b (timed out)"], 0, 4) == (
+        "could not connect to any validated address: a (refused); b (timed out)"
+    )
+    assert exhausted(["a (refused)"], 16, 4) == (
+        "could not connect to any validated address: a (refused); "
+        "16 further address(es) not tried (max_connection_attempts=4)"
+    )
+    # The cap is named because a caller who sees addresses go untried needs to know which field
+    # to widen, and the count is the policy's rather than a constant.
+    assert "max_connection_attempts=9" in exhausted(["a"], 1, 9)
