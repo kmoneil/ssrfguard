@@ -39,7 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # syntax and API drift. This one matrices because the answer it computes *differs by
 # interpreter*: the standard library's idea of which addresses are private moved in
 # CVE-2024-4032, and `ipaddress.ip_address("64:ff9b::7f00:1").is_global` still returns True on
-# every version — a NAT64 address that a gateway will translate to 127.0.0.1. This package
+# every version -- a NAT64 address that a gateway will translate to 127.0.0.1. This package
 # therefore ships its own address table, and the assertions that pin it against the standard
 # library's only mean something when they run on more than one interpreter.
 SUPPORTED_PYTHONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13", "3.14")
@@ -90,7 +90,7 @@ LANES: tuple[Lane, ...] = (
             "the uv.lock check, the exec-bit check and the secrets scan"
         ),
         needs=(
-            "uv sync. POSIX only — the local pre-commit hooks name .venv/bin/* by path, "
+            "uv sync. POSIX only -- the local pre-commit hooks name .venv/bin/* by path, "
             "which does not exist on Windows, and nothing they check is platform-dependent"
         ),
         command=("pre-commit", "run", "--all-files", "--hook-stage", "pre-commit"),
@@ -103,7 +103,7 @@ LANES: tuple[Lane, ...] = (
             "httpx nor requests is installed loads no third-party module"
         ),
         needs=(
-            "uv, and an interpreter with nothing else in it. **The isolation is the lane** — "
+            "uv, and an interpreter with nothing else in it. **The isolation is the lane** -- "
             "tests/test_zero_deps.py reads METADATA and can run anywhere, but it cannot catch "
             "an adapter that imports its client eagerly, because a dev checkout has both "
             "clients installed. Only a clean interpreter can see that, so this cannot be a "
@@ -179,7 +179,7 @@ LANES: tuple[Lane, ...] = (
         needs=(
             "the ability to bind a UDP socket on loopback. No network and no privileges, but "
             "a locked-down container can refuse the bind, and this lane fails rather than "
-            "skips when it does — see the note on `egress`, which is the same failure"
+            "skips when it does -- see the note on `egress`, which is the same failure"
         ),
         command=("pytest", "-m", "rebind", "--no-header"),
     ),
@@ -187,7 +187,7 @@ LANES: tuple[Lane, ...] = (
         name="adapters",
         checks=(
             "httpx and requests against one shared matrix, so the two seams cannot drift "
-            "apart — including the assertion neither may ever fail: the TLS server_hostname "
+            "apart -- including the assertion neither may ever fail: the TLS server_hostname "
             "is the hostname, never the pinned IP, because passing an IP there silently "
             "disables certificate hostname verification"
         ),
@@ -206,7 +206,7 @@ LANES: tuple[Lane, ...] = (
         needs=(
             "outbound network. **This lane fails rather than skips when it cannot run.** "
             "A suite whose egress rows skip reports green having proven nothing, and the "
-            "skipped rows are precisely the ones under test — ci.yml runs a reachability "
+            "skipped rows are precisely the ones under test -- ci.yml runs a reachability "
             "probe as a separate step before this one for exactly that reason"
         ),
         command=("pytest", "-m", "egress"),
@@ -214,12 +214,12 @@ LANES: tuple[Lane, ...] = (
     Lane(
         name="audit",
         checks=(
-            "known advisories against the versions uv.lock pins, in two scopes — what a user "
+            "known advisories against the versions uv.lock pins, in two scopes -- what a user "
             "installs gates, what a developer installs reports"
         ),
         needs=(
             "uv sync --group audit, and a reachable advisory service. A run that cannot reach "
-            "it exits 2 — neither a pass nor a finding — rather than reporting a clean tree. "
+            "it exits 2 -- neither a pass nor a finding -- rather than reporting a clean tree. "
             "**The shipped scope is empty and that is the point**: this lane prints the empty "
             "set every release, which is the claim on the README verified rather than asserted"
         ),
@@ -241,7 +241,7 @@ LANES: tuple[Lane, ...] = (
         needs="uv sync --frozen --all-extras",
         reports_only=(
             "`mutmut run` exits 0 whether or not mutants survive, and no register of "
-            "known-equivalent survivors is committed — so there is nothing for a machine to "
+            "known-equivalent survivors is committed -- so there is nothing for a machine to "
             "diff a run against. `mutmut results` is printed so a human can do the diff until "
             "there is"
         ),

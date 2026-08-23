@@ -7,7 +7,7 @@ build whose answer depends on the day it ran.
     python scripts/refresh_registry.py && git diff src/ssrfguard/_registry.py
 
 **Read the diff.** A registry change is a change to what this package refuses, so it is reviewed
-like any other change to a security control — and the drift test in `tests/test_address_table.py`
+like any other change to a security control -- and the drift test in `tests/test_address_table.py`
 will fail on anything that also moves our disagreement with the standard library.
 
 ## What the transformation does
@@ -20,8 +20,8 @@ which is a case where the registry answers a different question than we are aski
   has any business reaching.
 * **`N/A`** marks a prefix whose reachability depends on what is embedded in it. Those become
   ``TRANSLATED``: decode the embedded IPv4 address and ask the question again about that.
-* **`64:ff9b::/96` is `True` and still becomes `TRANSLATED`.** IANA is right — the prefix is
-  globally routable — but the question we are asking is where the packet ends up, and for a
+* **`64:ff9b::/96` is `True` and still becomes `TRANSLATED`.** IANA is right -- the prefix is
+  globally routable -- but the question we are asking is where the packet ends up, and for a
   translation prefix that is the embedded address. This is the single most important line in
   this file; see `ADDITIONS` for the rest.
 

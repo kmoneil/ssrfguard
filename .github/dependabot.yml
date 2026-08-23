@@ -1,14 +1,14 @@
 # Keep the pinned GitHub Actions from going stale silently.
 #
 # **The pin is the problem this solves, not a thing it fights.** Every third-party action in
-# `ci.yml` and `release.yml` is pinned to a commit SHA — `tests/test_lanes.py` asserts it —
+# `ci.yml` and `release.yml` is pinned to a commit SHA -- `tests/test_lanes.py` asserts it --
 # because a floating tag is a mutable reference to somebody else's code and `release.yml` runs
 # with permission to publish. But a SHA cannot look outdated: nothing reads as wrong, no gate
 # fires, and the first signal is a deprecation warning in a job log that nobody opens between
 # releases. Dependabot opens a pull request when an action moves and rewrites the SHA *and* the
 # trailing tag comment, so the pin survives and the staleness becomes visible.
 #
-# Actions only. **This project has no runtime dependencies to update** — that is the product,
+# Actions only. **This project has no runtime dependencies to update** -- that is the product,
 # enforced by `tests/test_zero_deps.py` and the `zero-deps` lane. Development dependencies are
 # resolved by `uv.lock`, whose updates go through `uv lock --upgrade` and the `audit` lane; a
 # second updater on the same file would fight it.
