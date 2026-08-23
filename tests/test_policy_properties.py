@@ -13,6 +13,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from ssrfguard import BlockedAddressError, BlockedURLError, Policy
+from ssrfguard._policy import _NUMERIC_SHAPED
 from ssrfguard._registry import TABLE, Reach
 
 POLICY = Policy()
@@ -151,3 +152,52 @@ def test_case_never_changes_the_verdict(host: str) -> None:
     lower = POLICY.check_url(f"http://{host}/")
     upper = POLICY.check_url(f"HTTP://{host.upper()}/")
     assert lower == upper
+
+
+@settings(max_examples=2000)
+@given(st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), max_size=48))
+def test_the_shortcut_around_the_address_parser_never_lets_an_address_through(text: str) -> None:
+    """`_check_host` skips the address parser on a cheap test, and this is why that is safe.
+
+    Handing every host to `ipaddress.ip_address` to find out whether it is one costs three
+    raised exceptions on the ordinary answer, which is "no", and that was the most expensive
+    thing in `check_url`. So a one-character test runs first: an address literal either holds a
+    colon or is nothing but digits and dots.
+
+    **A wrong answer here is a wrong permit, not a wrong deny**, which is why this is generated
+    rather than argued. A literal address mistaken for a name skips `check_address` entirely and
+    reaches the resolver as though it were a hostname. The argument is that `IPv4Address` accepts
+    only digits and dots and `IPv6Address` requires a colon, so there is no third shape, and this
+    is what says the argument holds for strings nobody would think to write down.
+    """
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return
+    assert ":" in text or _NUMERIC_SHAPED.match(text) is not None, (
+        f"{text!r} parses as an address and the shortcut in _check_host would have treated it "
+        f"as a name, which skips check_address entirely"
+    )
+
+
+@settings(max_examples=400)
+@given(st.one_of(st.ip_addresses(v=4), st.ip_addresses(v=6)))
+def test_the_shortcut_admits_every_address_the_parser_accepts(address: object) -> None:
+    """The same property from the other side, over addresses rather than over text.
+
+    Random printable text almost never happens to be an address, so the property above spends
+    most of its examples on the uninteresting branch. This one generates only addresses, in both
+    the compressed and the exploded spelling, so the interesting branch is every example.
+
+    Each spelling is fed back through the parser before it is asserted on, because a rendering
+    is not automatically an input: ``format(IPv6Address("::a"), "x")`` is 32 bare hex digits,
+    which nothing accepts, and asserting on it tests the fixture rather than the code.
+    """
+    for form in {address.compressed, address.exploded}:
+        try:
+            ipaddress.ip_address(form)
+        except ValueError:
+            continue
+        assert ":" in form or _NUMERIC_SHAPED.match(form) is not None, (
+            f"{form!r} is an address the shortcut would have skipped"
+        )
