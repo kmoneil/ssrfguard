@@ -73,6 +73,18 @@ process from opening a socket, and claiming otherwise is how teams end up with o
 they needed two. It also does not inspect application-layer traffic once a permitted host is
 reached, and it does not bound DNS resolution time.
 
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the setup, how to run the lanes, and the handful of
+things a review will send back. Two lines to start:
+
+```sh
+uv sync --frozen --all-extras
+python scripts/lanes.py            # every lane, what it checks, whether it gates
+```
+
+**Found a vulnerability?** [`SECURITY.md`](SECURITY.md), not an issue.
+
 ## License
 
 Apache-2.0.
