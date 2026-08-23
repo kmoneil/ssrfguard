@@ -25,6 +25,7 @@ import httpx
 import pytest
 import trustme
 from httpcore._backends.sync import SyncStream
+from httpx._utils import get_environment_proxies
 
 from ssrfguard import BlockedAddressError, BlockedURLError, Policy, ProxyUnsupportedError
 from ssrfguard.httpx import (
@@ -35,6 +36,7 @@ from ssrfguard.httpx import (
     Client,
     SafeBackend,
     SafeTransport,
+    _environment_proxy,
 )
 
 from .loopback_http import RecordingServer
@@ -376,6 +378,24 @@ def test_an_environment_that_proxies_nothing_is_not_a_refusal(
     """
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
     monkeypatch.setenv("NO_PROXY", "*")
+
+    with Client(policy=Policy()) as client:
+        assert isinstance(client._transport, SafeTransport)
+
+
+def test_a_no_proxy_entry_on_its_own_is_not_a_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``NO_PROXY`` without a proxy still puts an entry in httpx's map, and its value is ``None``.
+
+    The sibling above covers ``NO_PROXY=*``, which makes httpx return an *empty* map -- so the
+    loop in ``_environment_proxy`` never runs and the ``None`` entry is never seen. This is the
+    case where it is: one entry, no proxy behind it, and the loop has to keep looking rather than
+    read "there is a key here" as "a proxy applies". Getting that wrong refuses every client on
+    a machine whose operator excluded one hostname.
+    """
+    monkeypatch.setenv("NO_PROXY", "example.com")
+
+    assert get_environment_proxies() == {"all://*example.com": None}
+    assert _environment_proxy(trust_env=True) is None
 
     with Client(policy=Policy()) as client:
         assert isinstance(client._transport, SafeTransport)

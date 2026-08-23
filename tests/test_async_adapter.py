@@ -215,6 +215,31 @@ def test_a_sync_transport_is_not_an_async_one() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_prebuilt_async_transport_carries_its_own_policy(server: RecordingServer) -> None:
+    """The positive half of the test above, which is the half that had never been constructed.
+
+    ``transport=`` is documented on this class as the path for a caller who configured one, and
+    the synchronous twin has a test for it. This one had only the refusal -- so the branch that
+    *accepts* a transport was never taken, and a statement-coverage gate reported 100% while the
+    documented path on one of three shipped client surfaces went unexercised. The `fast` lane now
+    measures branches for that reason.
+    """
+    policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
+    transport = AsyncSafeTransport(policy=policy, resolver=Resolver(**{"pinned.test": "127.0.0.1"}))
+
+    async with AsyncClient(transport=transport) as client:
+        assert client.policy is transport.policy
+        response = await client.get(f"http://pinned.test:{server.port}/")
+
+    assert response.status_code == 200
+    assert server.received[-1].host == f"pinned.test:{server.port}"
+
+    with pytest.raises(TypeError) as refusal:
+        AsyncClient(policy=Policy(), transport=AsyncSafeTransport(policy=Policy()))
+    assert "two answers to one question" in str(refusal.value)
+
+
+@pytest.mark.anyio
 async def test_socket_options_reach_the_connection(server: RecordingServer) -> None:
     """httpx callers set these and expect them to arrive; a guarded path that dropped them
     silently would be a behaviour change nobody could attribute."""
