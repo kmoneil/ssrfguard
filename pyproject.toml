@@ -296,6 +296,14 @@ ban-relative-imports = "parents"
 # S104 exists to flag. The rule stays armed everywhere else.
 "tests/test_encodings.py" = ["S104"]
 
+# **The generator's internals are this file's subject.** It drives `_emit` and `_rows` directly
+# because the properties under test are about those two functions -- that a quote in a
+# network-fetched field cannot close a string literal, and that a block the generator cannot
+# parse stops it rather than being dropped. There is no public API to ask either question
+# through, and `main()` writes a whole file, so asserting on it instead would be asserting on
+# something else.
+"tests/test_registry_generator.py" = ["SLF001"]
+
 # The leak check is scaffolding, and this is the file that checks the scaffolding works. Its
 # subject is the plugin's internals, so reaching them is the test rather than a shortcut past
 # an API — there is no public one, and a lane that cannot fail is worse than no lane.

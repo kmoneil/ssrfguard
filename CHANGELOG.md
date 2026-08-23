@@ -216,6 +216,20 @@ All notable changes to this project are documented here. The format follows
   have bought is bought instead by naming the addresses, after resolution, where the name cannot
   be spoofed.
 
+- **The registry generator no longer writes a network-fetched field into Python source
+  unescaped.** `scripts/refresh_registry.py` hand-quoted three values from IANA's CSV, and
+  `cidr` — unlike its sibling `name` — had its quotes neither stripped nor escaped, so a `"` in
+  the *Address Block* column closed the literal and the rest of the cell became code in a module
+  `import ssrfguard` executes. Every interpolated field is now `repr`'d, and a block that is not
+  a network stops the generator instead of reaching the file, which is the likelier failure and
+  the one with no attacker in it.
+- **The generator produces the file that is committed again.** `_registry.py` says *Generated.
+  Do not edit by hand*; it had been hand-repaired after generation, so running the documented
+  workflow emitted a `typing.Union` left over from the abandoned 3.9 floor and an unsorted
+  `__all__` — a module that failed this repository's own lint gate. A test compares the emitted
+  header against the committed one offline, and the `egress` lane regenerates from IANA and
+  compares the table as values, so a registry that moved is a failing test rather than a table
+  nobody re-read.
 - **The `fast` lane measures branch coverage**, which is what its own rationale always described:
   "an untested branch in an address table is an address nobody has ever asked about". Statement
   coverage cannot see a branch — both lines of an `if` execute, only one edge between them ever

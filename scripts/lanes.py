@@ -198,7 +198,10 @@ LANES: tuple[Lane, ...] = (
         name="egress",
         checks=(
             "the seams against a real server: TLS completes over a pinned socket with SNI "
-            "carrying the hostname, and a redirect chain re-enters the transport per hop"
+            "carrying the hostname, and a redirect chain re-enters the transport per hop. "
+            "Also the address table's freshness -- the registry is regenerated from IANA and "
+            "compared to the committed table as values, so a registry that moved is a failing "
+            "test rather than a table nobody re-read"
         ),
         needs=(
             "outbound network. **This lane fails rather than skips when it cannot run.** "
