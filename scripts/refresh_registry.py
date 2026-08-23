@@ -37,6 +37,7 @@ import io
 import re
 import textwrap
 import urllib.request
+from ipaddress import ip_network
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -158,9 +159,8 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_network
-from typing import Union
 
-__all__ = ["TABLE", "Block", "REGISTRY_SNAPSHOT", "Reach"]
+__all__ = ["REGISTRY_SNAPSHOT", "TABLE", "Block", "Reach"]
 
 #: The date the IANA registries below were fetched. Bumped by `scripts/refresh_registry.py`.
 REGISTRY_SNAPSHOT = "{snapshot}"
@@ -195,7 +195,7 @@ class Block:
         note: Why this entry departs from the registries, empty when it does not.
     """
 
-    network: Union[IPv4Network, IPv6Network]
+    network: IPv4Network | IPv6Network
     name: str
     rfc: str
     reach: Reach
@@ -249,11 +249,21 @@ def _verdict(row: dict[str, str], cidr: str) -> tuple[str, str]:
 def _rows(version: int) -> list[tuple[str, str, str, str, str]]:
     """Fetch and transcribe one registry.
 
+    **Every block is parsed before it is emitted**, and that is a boundary rather than a
+    nicety. What comes back from the network is written into a Python module that
+    `import ssrfguard` executes, so a cell this function does not understand is a cell that
+    should stop the generator rather than reach the file. The likely case is IANA changing a
+    footnote format; the unlikely one is worse, and both are refused by the same line.
+
     Args:
         version: 4 or 6.
 
     Returns:
         Tuples of (cidr, name, rfc, reach, note).
+
+    Raises:
+        SystemExit: If a row's address block is not a network. Named loudly rather than skipped,
+            because a block silently dropped from this table is an address silently permitted.
     """
     with urllib.request.urlopen(SOURCES[version], timeout=30) as response:  # noqa: S310  # constant https URL
         text = response.read().decode("utf-8")
@@ -266,6 +276,15 @@ def _rows(version: int) -> list[tuple[str, str, str, str, str]]:
             cidr = re.sub(r"\s*\[\d+\]", "", raw).strip()
             if not cidr:
                 continue
+            try:
+                ip_network(cidr)
+            except ValueError as bad:
+                raise SystemExit(
+                    f"IPv{version} registry row {row['Name']!r} has an address block this "
+                    f"generator cannot parse: {cidr!r} ({bad}). Read the registry before "
+                    f"widening this -- the block is going into a table that decides what "
+                    f"gets refused."
+                ) from bad
             reach, note = _verdict(row, cidr)
             out.append((cidr, name, rfcs, reach, note))
     return out
@@ -282,7 +301,13 @@ def _emit(entries: list[tuple[str, str, str, str, str]]) -> str:
     """
     lines = []
     for cidr, name, rfc, reach, note in entries:
-        parts = [f'"{cidr}"', f'"{name}"', f'"{rfc}"', f"Reach.{reach}"]
+        # `repr` rather than an f-string wrapping the value in quote characters. Three of these
+        # come from a CSV fetched over the network and are being written into Python source that
+        # `import ssrfguard` executes -- so a quote in one of them closed the literal and the
+        # rest of the cell became code. `name` happened to be defended (its quotes are stripped
+        # upstream) and `cidr` was not, which is the shape of every bug this package is about:
+        # the field nobody thought of as input.
+        parts = [repr(cidr), repr(name), repr(rfc), f"Reach.{reach}"]
         if note:
             # Wrapped into implicit-concatenated literals: `ruff format` will not split a long
             # string, so an unwrapped note fails E501 and the generated file cannot pass its own
