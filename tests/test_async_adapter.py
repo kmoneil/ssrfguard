@@ -367,3 +367,102 @@ def test_an_environment_proxy_is_refused_by_the_async_client(
 
     with pytest.raises(ProxyUnsupportedError):
         AsyncClient(policy=Policy())
+
+
+# ---------------------------------------------------------------------------------------------
+# Failing over past a timeout, and the cap on how many times that may happen
+#
+# Injected rather than waited for, for the reason the connect-timeout test above gives.
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_timed_out_address_is_failed_over_from(
+    server: RecordingServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The synchronous path moves on from a timed-out answer and this one used to raise on it.
+
+    A host answering with one dead address and one live one therefore worked on `Client` and
+    failed on `AsyncClient` -- the two clients disagreeing about the same host, which is exactly
+    what the shared matrix exists to prevent and what this file's own docstring calls the reason
+    a guard becomes a support burden and then gets removed.
+    """
+    real = anyio.connect_tcp
+    stalled: list[str] = []
+
+    async def first_one_stalls(**kwargs: object) -> object:
+        if str(kwargs["remote_host"]) == "127.0.0.9":
+            stalled.append("127.0.0.9")
+            await anyio.sleep(5)
+            raise AssertionError("unreachable")  # pragma: no cover
+        return await real(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(anyio, "connect_tcp", first_one_stalls)
+
+    policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
+    resolver = Resolver(**{"failover.test": ["127.0.0.9", "127.0.0.1"]})
+    backend = AsyncSafeBackend(policy=policy, resolver=resolver)
+
+    stream = await backend.connect_tcp("failover.test", server.port, timeout=0.5)
+    await stream.aclose()
+
+    assert stalled == ["127.0.0.9"], "the first answer has to have been tried and timed out"
+
+
+@pytest.mark.anyio
+async def test_no_more_than_max_connection_attempts_addresses_are_tried_on_the_async_path(
+    server: RecordingServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same bound as the synchronous path, for the same reason and with the same message."""
+    tried: list[str] = []
+
+    async def never(**kwargs: object) -> object:
+        tried.append(str(kwargs["remote_host"]))
+        await anyio.sleep(5)
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    monkeypatch.setattr(anyio, "connect_tcp", never)
+
+    policy = Policy(
+        allowed_ports=frozenset({server.port}),
+        allowed_networks=LOOPBACK,
+        max_connection_attempts=3,
+    )
+    resolver = Resolver(**{"fanout.test": [f"127.0.0.{n}" for n in range(1, 13)]})
+    backend = AsyncSafeBackend(policy=policy, resolver=resolver)
+
+    with pytest.raises(httpcore.ConnectTimeout) as caught:
+        await backend.connect_tcp("fanout.test", server.port, timeout=0.01)
+
+    assert len(tried) == 3
+    assert "9 further address(es) not tried" in str(caught.value)
+    assert "max_connection_attempts=3" in str(caught.value)
+
+
+@pytest.mark.anyio
+async def test_a_refusal_among_timeouts_arrives_as_a_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refusal says the host is there and said no; a timeout says nothing at all. httpcore
+    spells the two differently and the more informative one is the one that survives."""
+    real = anyio.connect_tcp
+
+    async def first_one_stalls(**kwargs: object) -> object:
+        if str(kwargs["remote_host"]) == "127.0.0.9":
+            await anyio.sleep(5)
+            raise AssertionError("unreachable")  # pragma: no cover
+        return await real(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(anyio, "connect_tcp", first_one_stalls)
+
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    dead = int(closed.getsockname()[1])
+    closed.close()
+
+    policy = Policy(allowed_ports=frozenset({dead}), allowed_networks=LOOPBACK)
+    resolver = Resolver(**{"mixed.test": ["127.0.0.9", "127.0.0.1"]})
+    backend = AsyncSafeBackend(policy=policy, resolver=resolver)
+
+    with pytest.raises(httpcore.ConnectError):
+        await backend.connect_tcp("mixed.test", dead, timeout=0.5)

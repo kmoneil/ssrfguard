@@ -154,6 +154,14 @@ class Policy:
         max_redirects: How many hops a chain may take before it is refused. **Counted by this
             package rather than by the HTTP client**, whose own limit exists to stop loops, is
             an order of magnitude larger, and can be changed without touching the policy.
+        max_connection_attempts: How many of a name's validated addresses to try before giving
+            up. **This exists because ``timeout`` is per attempt and the answer count is not
+            ours to choose.** A name whose authoritative server returns two hundred addresses,
+            every one of them permitted by the policy and every one of them silently dropping
+            packets, costs two hundred times the timeout the caller asked for -- one request,
+            one held worker, no log line that reads as an attack. Four keeps the dual-stack
+            failover that is the reason for trying more than one at all, and bounds the cost at
+            four times what was asked for.
         sensitive_headers: Header names dropped when a redirect crosses to another origin,
             compared in lower case. The default is the three whose *definition* is credentials;
             a header like ``x-api-key`` is a naming convention rather than a specification, so
@@ -171,6 +179,7 @@ class Policy:
     allow_userinfo: bool = False
     on_partial_block: PartialBlock = "reject"
     max_redirects: int = 5
+    max_connection_attempts: int = 4
     sensitive_headers: frozenset[str] = frozenset(
         {"authorization", "proxy-authorization", "cookie"}
     )
@@ -204,6 +213,12 @@ class Policy:
             )
         if self.max_redirects < 0:
             raise ValueError(f"max_redirects must not be negative, got {self.max_redirects}")
+        if self.max_connection_attempts < 1:
+            raise ValueError(
+                f"max_connection_attempts must be at least 1, got "
+                f"{self.max_connection_attempts}; a policy that permits no attempt can never "
+                f"connect to anything"
+            )
 
     # -- addresses -------------------------------------------------------------------------
 

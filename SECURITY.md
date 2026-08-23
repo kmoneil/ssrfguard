@@ -67,6 +67,12 @@ These are scope decisions with reasons, not deflections.
   leak, and it is the caller's to supervise. A report of a *new* unbounded path is in scope; this
   one is known.
 
+  **The exception is this one lookup, and the rest of the path is bounded on purpose.**
+  Connection attempts are not a second instance of it: the connect timeout is per attempt, so a
+  name answering with hundreds of permitted-but-blackholed addresses would multiply the caller's
+  timeout by a number the attacker picked. `Policy.max_connection_attempts` caps that. Any way
+  one request can consume attempts, sockets, memory or wall-clock without a ceiling is in scope.
+
   **The asynchronous client is different, and a stall there would be in scope.** A lookup that
   blocked an event loop would freeze every unrelated request in the process rather than the one
   that asked for it, so `ssrfguard.httpx.AsyncClient` resolves off the loop in a worker thread.

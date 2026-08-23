@@ -22,6 +22,7 @@ def test_the_defaults_are_the_ones_documented() -> None:
     assert policy.allow_userinfo is False
     assert policy.on_partial_block == "reject"
     assert policy.max_redirects == 5
+    assert policy.max_connection_attempts == 4
     assert policy.sensitive_headers == frozenset({"authorization", "proxy-authorization", "cookie"})
     assert policy.allow_proxy is False
     assert policy.allowed_networks == ()
@@ -74,6 +75,8 @@ def test_a_malformed_network_fails_at_construction_not_at_the_request() -> None:
         ({"allowed_ports": frozenset({70000})}, "allowed_ports contains 70000"),
         ({"on_partial_block": "shrug"}, "on_partial_block must be 'reject' or 'drop'"),
         ({"max_redirects": -1}, "max_redirects must not be negative"),
+        ({"max_connection_attempts": 0}, "max_connection_attempts must be at least 1"),
+        ({"max_connection_attempts": -1}, "max_connection_attempts must be at least 1"),
     ],
 )
 def test_a_policy_that_cannot_mean_anything_is_refused(kwargs: dict, message: str) -> None:

@@ -823,7 +823,14 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         Failing over matters as much here as on the synchronous path: the first answer for a
         dual-stack host is routinely unreachable, and a guard that gives up there becomes a
         support burden and then gets removed. It is only safe because a partially-denied name
-        never reaches this.
+        never reaches this. **A timed-out attempt is failed over from too**, which the first
+        version of this did not do -- it raised on the first timeout while the synchronous path
+        moved on, so the two clients disagreed about a host that answers with one dead address
+        and one live one.
+
+        The attempt count is capped by ``policy.max_connection_attempts`` for the reason
+        :func:`ssrfguard.connect` is: the timeout is per attempt and the number of answers
+        belongs to whoever runs the name's authoritative server.
 
         Args:
             addresses: The validated answers, in the resolver's own order.
@@ -835,20 +842,28 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             The connected stream.
 
         Raises:
-            ConnectTimeout: If an attempt timed out.
-            ConnectError: If every address refused.
+            ConnectTimeout: If every attempt timed out.
+            ConnectError: If any attempt was refused and none succeeded.
         """
+        attempted = addresses[: self.policy.max_connection_attempts]
         failures: list[str] = []
-        for address in addresses:
+        # See the same variable in `ssrfguard._connect.connect`, whose reasoning this mirrors.
+        only_timeouts = True
+        for address in attempted:
             try:
                 with anyio.fail_after(timeout):
                     stream = await anyio.connect_tcp(
                         remote_host=address.ip, remote_port=address.port, local_host=local_address
                     )
-            except TimeoutError as timed_out:
-                raise httpcore.ConnectTimeout(str(timed_out)) from timed_out
+            # Before `except OSError`, which it is a subclass of. Appended and continued rather
+            # than raised, because a timed-out first answer is the ordinary dual-stack case and
+            # giving up on it here would fail requests the synchronous client completes.
+            except TimeoutError:
+                failures.append(f"{address} (timed out)")
+                continue
             except OSError as failed:
                 failures.append(f"{address} ({failed})")
+                only_timeouts = False
                 continue
             try:
                 for option in socket_options or ():
@@ -859,8 +874,17 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
                 await stream.aclose()
                 raise
             return AnyIOStream(stream)
-        raise httpcore.ConnectError(
-            f"could not connect to any validated address: {'; '.join(failures)}"
+
+        skipped = len(addresses) - len(attempted)
+        untried = (
+            ""
+            if not skipped
+            else f"; {skipped} further address(es) not tried "
+            f"(max_connection_attempts={self.policy.max_connection_attempts})"
+        )
+        message = f"could not connect to any validated address: {'; '.join(failures)}{untried}"
+        raise (
+            httpcore.ConnectTimeout(message) if only_timeouts else httpcore.ConnectError(message)
         )
 
     async def connect_unix_socket(

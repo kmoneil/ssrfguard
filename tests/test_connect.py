@@ -12,6 +12,7 @@ into the library would be evidence the door exists.
 from __future__ import annotations
 
 import gc
+import re
 import socket
 import struct
 import threading
@@ -312,3 +313,139 @@ def test_connects_over_ipv6_loopback() -> None:
             assert sock.getpeername()[:2] == ("::1", port)
     finally:
         server.close()
+
+
+# ---------------------------------------------------------------------------------------------
+# The attempt cap, and what a sequence of failures adds up to
+#
+# The failure modes below are injected at `_open` rather than waited for, for the reason
+# `tests/test_async_adapter.py` gives where it makes the same point: "an address that reliably
+# blackholes" is not something a test suite can count on, and a security test that fails
+# intermittently gets deleted. What is under test here is the sequencing, which is where the
+# bug was -- not the socket layer, which is the standard library's.
+# ---------------------------------------------------------------------------------------------
+
+
+def scripted_open(monkeypatch: pytest.MonkeyPatch, *outcomes: type[OSError] | None) -> list[str]:
+    """Replace `_open` with a script of per-attempt outcomes, recording what was tried.
+
+    Args:
+        monkeypatch: pytest's patcher.
+        *outcomes: One entry per attempt -- an exception class to raise, or ``None`` to
+            succeed. Attempts past the end repeat the last entry, so a single entry is
+            "every attempt does this".
+
+    Returns:
+        The list attempts are recorded into, in order, as text.
+    """
+    tried: list[str] = []
+
+    def fake_open(address: Address, *_args: object) -> socket.socket:
+        outcome = outcomes[min(len(tried), len(outcomes) - 1)]
+        tried.append(str(address.ip))
+        if outcome is not None:
+            raise outcome(f"scripted {outcome.__name__}")
+        return socket.socket()
+
+    monkeypatch.setattr("ssrfguard._connect._open", fake_open)
+    return tried
+
+
+def test_no_more_than_max_connection_attempts_addresses_are_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bound is a security control rather than a tidiness one.
+
+    `timeout` is per attempt, and how many attempts there are is decided by whoever runs the
+    authoritative server for the name being fetched. Uncapped, a zone answering with two
+    hundred permitted addresses that all drop packets turns one request into two hundred times
+    the timeout the caller asked for -- a worker held for as long as the attacker cares to hold
+    it, on a path that reads as a slow upstream rather than as an attack.
+    """
+    tried = scripted_open(monkeypatch, TimeoutError)
+    addresses = [address_for(f"127.0.0.{n}", 80) for n in range(1, 21)]
+
+    with pytest.raises(OSError) as caught:
+        connect(addresses, policy=LOOPBACK_OK, timeout=1)
+
+    assert len(tried) == LOOPBACK_OK.max_connection_attempts == 4
+    message = str(caught.value)
+    assert "16 further address(es) not tried" in message, "the refusal says what it did not try"
+    assert "max_connection_attempts=4" in message, "and names the field that decided it"
+
+
+def test_the_cap_is_the_policys_number_rather_than_a_constant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller whose name legitimately answers with more addresses raises it on the policy,
+    which is the whole reason the refusal prints the field name."""
+    tried = scripted_open(monkeypatch, TimeoutError)
+    policy = Policy(allowed_networks=("127.0.0.0/8",), max_connection_attempts=7)
+
+    with pytest.raises(OSError):
+        connect([address_for(f"127.0.0.{n}", 80) for n in range(1, 21)], policy=policy, timeout=1)
+
+    assert len(tried) == 7
+
+
+def test_every_address_is_still_validated_even_though_only_some_are_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap bounds what is *attempted*, never what is *checked*. A denied address beyond the
+    cap still refuses the whole sequence, so capping cannot become a way to smuggle one past."""
+    tried = scripted_open(monkeypatch, TimeoutError)
+    addresses = [address_for(f"127.0.0.{n}", 80) for n in range(1, 8)]
+    addresses.append(address_for("169.254.169.254", 80))
+
+    with pytest.raises(BlockedAddressError, match=re.escape("169.254.169.254")):
+        connect(addresses, policy=LOOPBACK_OK, timeout=1)
+
+    assert tried == [], "nothing is opened until every address has been checked"
+
+
+def test_a_sequence_that_only_timed_out_raises_a_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`TimeoutError` is an `OSError`, so raising a plain one here is caught by the adapters'
+    `except OSError` before their `except TimeoutError` ever runs. A caller that distinguishes
+    "timed out" from "refused" -- which is what every retry and every circuit breaker does --
+    would be told the wrong one, and told it by the guard rather than by the client."""
+    scripted_open(monkeypatch, TimeoutError)
+
+    with pytest.raises(TimeoutError):
+        connect(
+            [address_for("127.0.0.1", 80), address_for("127.0.0.2", 80)],
+            policy=LOOPBACK_OK,
+            timeout=1,
+        )
+
+
+def test_one_refusal_among_timeouts_is_reported_as_the_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refusal says the host is there and said no; a timeout says nothing at all. The
+    informative one survives."""
+    scripted_open(monkeypatch, TimeoutError, ConnectionRefusedError)
+
+    with pytest.raises(OSError) as caught:
+        connect(
+            [address_for("127.0.0.1", 80), address_for("127.0.0.2", 80)],
+            policy=LOOPBACK_OK,
+            timeout=1,
+        )
+
+    assert not isinstance(caught.value, TimeoutError)
+
+
+def test_a_timed_out_attempt_is_failed_over_from(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timeout on the first answer is the ordinary dual-stack case, not a reason to stop."""
+    tried = scripted_open(monkeypatch, TimeoutError, None)
+
+    with connect(
+        [address_for("127.0.0.1", 80), address_for("127.0.0.2", 80)],
+        policy=LOOPBACK_OK,
+        timeout=1,
+    ):
+        pass
+
+    assert tried == ["127.0.0.1", "127.0.0.2"]
