@@ -42,12 +42,16 @@ class Received:
             address that was connected to.
         sni: The name the client put in the TLS ``server_name`` extension, or ``None`` for a
             plaintext connection *and* for a TLS one whose client offered an address.
+        headers: Every header, keyed in lower case. Present so that a test can ask what a
+            redirect carried to the host it was redirected to, which is the half of a redirect
+            that no client handles the same way as another.
     """
 
     method: str
     path: str
     host: str
     sni: str | None
+    headers: dict[str, str]
 
 
 @dataclass
@@ -77,6 +81,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     path=self.path,
                     host=self.headers.get("Host", ""),
                     sni=state.sni_by_peer.get((str(peer[0]), int(peer[1]))),
+                    headers={name.lower(): value for name, value in self.headers.items()},
                 )
             )
             status, headers, body = state.routes.get(self.path, DEFAULT_ROUTE)

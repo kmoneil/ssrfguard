@@ -151,7 +151,15 @@ class Policy:
             addresses. ``"reject"`` refuses the whole name, because that pattern is the
             signature of a rebinding attempt rather than of a misconfiguration. ``"drop"`` keeps
             the permitted answers. Consumed by resolution, validated here.
-        max_redirects: How many hops a chain may take before it is refused.
+        max_redirects: How many hops a chain may take before it is refused. **Counted by this
+            package rather than by the HTTP client**, whose own limit exists to stop loops, is
+            an order of magnitude larger, and can be changed without touching the policy.
+        sensitive_headers: Header names dropped when a redirect crosses to another origin,
+            compared in lower case. The default is the three whose *definition* is credentials;
+            a header like ``x-api-key`` is a naming convention rather than a specification, so
+            it is named here by the caller who uses it rather than guessed at by this package.
+            An upgrade from ``http`` to ``https`` on the same host is not a crossing, which is
+            what both clients already do for ``Authorization`` and is not worth differing from.
         allow_proxy: Whether to proceed when a proxy is configured. Off by default, because a
             proxy resolves the target itself and pinning cannot reach it.
     """
@@ -163,6 +171,9 @@ class Policy:
     allow_userinfo: bool = False
     on_partial_block: PartialBlock = "reject"
     max_redirects: int = 5
+    sensitive_headers: frozenset[str] = frozenset(
+        {"authorization", "proxy-authorization", "cookie"}
+    )
     allow_proxy: bool = False
 
     def __post_init__(self) -> None:
@@ -177,6 +188,9 @@ class Policy:
         )
         object.__setattr__(self, "allowed_networks", _as_networks(self.allowed_networks))
         object.__setattr__(self, "allowed_ports", frozenset(self.allowed_ports))
+        object.__setattr__(
+            self, "sensitive_headers", frozenset(h.lower() for h in self.sensitive_headers)
+        )
         if not self.allowed_schemes:
             raise ValueError("allowed_schemes is empty, so no URL can ever be permitted")
         if not self.allowed_ports:

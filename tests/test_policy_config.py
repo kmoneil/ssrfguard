@@ -22,8 +22,26 @@ def test_the_defaults_are_the_ones_documented() -> None:
     assert policy.allow_userinfo is False
     assert policy.on_partial_block == "reject"
     assert policy.max_redirects == 5
+    assert policy.sensitive_headers == frozenset({"authorization", "proxy-authorization", "cookie"})
     assert policy.allow_proxy is False
     assert policy.allowed_networks == ()
+
+
+def test_sensitive_header_names_are_normalised_rather_than_matched_case_sensitively() -> None:
+    """A header name is case-insensitive on the wire, so a policy that was not would be a
+    control defeated by typing `X-Api-Key` where the caller wrote `x-api-key`."""
+    policy = Policy(sensitive_headers={"X-Api-Key", "Authorization"})
+    assert policy.sensitive_headers == frozenset({"x-api-key", "authorization"})
+
+
+def test_the_default_sensitive_headers_are_the_ones_a_specification_defines() -> None:
+    """Deliberately not a guessed list of conventions.
+
+    `x-api-key` is a credential because a shop decided it is; matching on a name this package
+    invented would be the string-matching that every bypass in this package's README relies on.
+    The three here are credentials by definition, and the field is where a caller names theirs.
+    """
+    assert "x-api-key" not in Policy().sensitive_headers
 
 
 def test_schemes_are_normalised_rather_than_matched_case_sensitively() -> None:

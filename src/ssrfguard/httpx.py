@@ -56,16 +56,21 @@ import httpx
 # not containing one is the entire argument for this seam.
 from httpcore._backends.sync import SyncStream
 
+# httpx's own answer to "did this hop leave the origin", so that headers are stripped on
+# exactly the hops httpx already strips `Authorization` on -- this can then only ever strip
+# more than httpx would, never less.
+#
 # httpx's own reading of the proxy environment, so that `NO_PROXY` means exactly what it
 # means to httpx -- including `NO_PROXY=*`, which switches the environment off entirely and
 # must therefore not produce a refusal. Re-deriving it here would be a second parser to keep
 # in agreement with the first.
+from httpx._client import _is_https_redirect, _same_origin
 from httpx._utils import get_environment_proxies
 
 from ssrfguard._connect import connect
 from ssrfguard._policy import Policy, Target, _literal_address
 from ssrfguard._resolve import Resolver, resolve
-from ssrfguard.errors import BlockedURLError, ProxyUnsupportedError
+from ssrfguard.errors import BlockedURLError, ProxyUnsupportedError, TooManyRedirectsError
 
 __all__ = ["Client", "SafeBackend", "SafeTransport"]
 
@@ -551,6 +556,59 @@ class Client(httpx.Client):
             name: value for name, value in options.items() if name not in _TRANSPORT_OPTIONS
         }
         return transport_options, client_options
+
+    def _build_redirect_request(
+        self, request: httpx.Request, response: httpx.Response
+    ) -> httpx.Request:
+        """Count the hop before building it, and refuse a chain longer than the policy allows.
+
+        Counted here rather than left to ``max_redirects``, because the client's own limit is
+        not a security control: it exists to stop loops, it defaults to twenty, and it can be
+        changed without touching the policy. This runs before the over-limit request is built,
+        so the hop that exceeds the cap is never sent.
+
+        Args:
+            request: The request that was redirected.
+            response: The response that redirected it. Its ``history`` is the chain so far.
+
+        Returns:
+            The request for the next hop.
+
+        Raises:
+            TooManyRedirectsError: If this hop would take the chain past the policy's limit.
+        """
+        walked = [*response.history, response]
+        if len(walked) > self.policy.max_redirects:
+            raise TooManyRedirectsError(
+                self.policy.max_redirects, tuple(str(hop.url) for hop in walked)
+            )
+        return super()._build_redirect_request(request, response)
+
+    def _redirect_headers(
+        self, request: httpx.Request, url: httpx.URL, method: str
+    ) -> httpx.Headers:
+        """Drop the policy's sensitive headers when a redirect leaves the origin.
+
+        httpx already drops ``Authorization`` and reads cookies from its own jar rather than
+        from the outgoing request. This widens that to whatever the caller told the policy is a
+        credential -- an ``X-Api-Key`` is a credential by convention rather than by
+        specification, so it is named by the caller who uses it rather than guessed at here.
+
+        Args:
+            request: The request that was redirected.
+            url: Where it is being redirected to.
+            method: The method the next hop will use.
+
+        Returns:
+            The headers for the next hop.
+        """
+        headers = super()._redirect_headers(request, url, method)
+        if _same_origin(url, request.url) or _is_https_redirect(request.url, url):
+            return headers
+        for name in list(headers):
+            if name.lower() in self.policy.sensitive_headers:
+                del headers[name]
+        return headers
 
     @staticmethod
     def _configured_proxy(client_options: dict[str, Any], *, trust_env: bool) -> str | None:
