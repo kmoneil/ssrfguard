@@ -8,11 +8,20 @@ this file is what checks the things a human reading a 200-line diff will not.
 from __future__ import annotations
 
 import re
+import socket
 from ipaddress import ip_address, ip_network
+from pathlib import Path
 
 import pytest
 
-from ssrfguard import DEFAULT_DENIED, REGISTRY_SNAPSHOT, Reach
+from ssrfguard import (
+    DEFAULT_DENIED,
+    REGISTRY_SNAPSHOT,
+    BlockedAddressError,
+    Policy,
+    Reach,
+    resolve,
+)
 from ssrfguard._registry import TABLE
 
 
@@ -88,4 +97,63 @@ def test_metadata_entries_are_a_message_not_a_mechanism(metadata: str, service: 
     enclosing = type(DEFAULT_DENIED)(without_the_name).classify(address)
     assert enclosing.blocked, (
         f"{metadata} is denied ONLY by its named entry; the enclosing block does not cover it"
+    )
+
+
+#: The names cloud vendors publish for their metadata services. Present here so the test below
+#: can assert they are **absent** from the shipped code.
+METADATA_HOSTNAMES = (
+    "metadata.google.internal",
+    "metadata.goog",
+    "instance-data",
+    "metadata.azure.com",
+    "metadata.tencentyun.com",
+)
+
+
+def test_no_metadata_hostname_is_matched_anywhere_in_the_shipped_code() -> None:
+    """The decision this fences: metadata endpoints are denied by address, never by name.
+
+    Denying `metadata.google.internal` by name would read as a stronger control and be a weaker
+    one. `metadata.google.internal.` with a trailing dot defeats it; so does the wrong case, an
+    IDN homograph, and a CNAME that resolves there without carrying the name. None of those
+    defeat the address check, and shipping the string would suggest a guarantee the mechanism
+    does not provide.
+
+    The error quality that a name would have bought is bought instead by naming the *addresses*,
+    which happens after resolution where it cannot be spoofed -- see the test above.
+    """
+    offenders: list[str] = []
+    for module in sorted(Path(__file__).resolve().parent.parent.glob("src/ssrfguard/*.py")):
+        text = module.read_text(encoding="utf-8").lower()
+        offenders.extend(
+            f"{module.name}: {hostname}" for hostname in METADATA_HOSTNAMES if hostname in text
+        )
+
+    assert not offenders, (
+        "a cloud metadata hostname is being matched as a string: "
+        + ", ".join(offenders)
+        + ". That is the bypass class this package refuses to have; deny the address instead"
+    )
+
+
+def test_a_metadata_hostname_passes_the_url_layer_and_is_refused_by_its_address() -> None:
+    """The decision, demonstrated rather than described.
+
+    Nothing about the *name* is refused, because nothing here looks at names. What refuses it is
+    where it resolves to -- which is also what refuses the same endpoint reached under any other
+    name, or under none.
+    """
+    policy = Policy()
+    target = policy.check_url("http://metadata.google.internal/")
+    assert target.host == "metadata.google.internal", "the name itself is not the control"
+
+    def resolver(host: str, port: int, *_args: object) -> list[tuple]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port))]
+
+    with pytest.raises(BlockedAddressError) as refusal:
+        resolve(target, policy=policy, resolver=resolver)
+
+    assert "Cloud metadata" in refusal.value.reason, (
+        "the refusal has to name the service, because that is what naming the addresses buys"
     )

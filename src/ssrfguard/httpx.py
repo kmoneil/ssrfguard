@@ -387,9 +387,13 @@ class SafeTransport(httpx.HTTPTransport):
             cert: A client certificate.
             trust_env: Whether to read TLS settings from the environment.
             http1: Whether to offer HTTP/1.1.
-            http2: Whether to offer HTTP/2. Off by default, and deliberately: nothing has yet
-                measured whether httpcore coalesces two authorities onto one HTTP/2 connection,
-                and if it does then the pin is per-connection while the policy is per-request.
+            http2: Whether to offer HTTP/2. Off by default because that is httpx's default,
+                **not** because of a doubt about the pin. The doubt was connection coalescing --
+                an HTTP/2 client reusing one connection for a second authority whose name the
+                certificate also covers, which would make the pin per-connection while the
+                policy is per-request. httpcore does not do it: every connection class it has
+                gates reuse on an exact origin match, which is asserted in
+                ``tests/test_adapter_http2.py`` along with ALPN surviving the pinned stream.
             limits: Pool limits, or ``None`` for httpx's defaults.
             proxy: A proxy. Refused unless the policy permits one, because a proxy resolves the
                 target itself and opens the socket to it, so nothing this transport does can
@@ -928,7 +932,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             trust_env: Whether to read TLS settings from the environment.
             http1: Whether to offer HTTP/1.1.
             http2: Whether to offer HTTP/2. Off by default, for the reason on
-                :class:`SafeTransport`.
+                :class:`SafeTransport`, which is httpx's default rather than a doubt.
             limits: Pool limits, or ``None`` for httpx's defaults.
             proxy: A proxy. Refused unless the policy permits one.
             uds: A unix domain socket. Always refused.

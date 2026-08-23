@@ -165,6 +165,14 @@ All notable changes to this project are documented here. The format follows
   them are well-formed hostnames the URL layer has no business refusing: `0x7f.0.0.1` is caught
   only after the resolver decodes it, and there is no code here that knows what hexadecimal is.
 
+- **Cloud metadata endpoints are denied by address and never by name**, and two tests keep it
+  that way: no vendor metadata hostname appears anywhere in the shipped code, and a request to
+  `metadata.google.internal` is shown passing the URL layer and being refused by where it
+  resolves to. A hostname denial would read as a stronger control and be a weaker one — a
+  trailing dot defeats it, so does the wrong case and a CNAME — and the error quality it would
+  have bought is bought instead by naming the addresses, after resolution, where the name cannot
+  be spoofed.
+
 ### Proven
 
 - **The central claim is demonstrated, not designed.** A DNS server on loopback, serving real
@@ -178,6 +186,10 @@ All notable changes to this project are documented here. The format follows
 - **Nothing in urllib3 resolves or connects behind the adapter.** Asserted by making
   `create_connection` — the one function urllib3 would look a name up in — raise for the
   duration of a request that then succeeds.
+- **httpcore does not coalesce HTTP/2 connections**, so a pin that is per-origin is a policy that
+  is per-origin. Every connection class it has gates reuse on an exact origin match, asserted
+  here including the HTTP/2 one; and ALPN negotiates `h2` over a pinned stream, measured. `http2`
+  stays off by default because that is httpx's default, not because of a doubt.
 - **Nothing in httpcore resolves or connects behind the adapter either.** `socket.create_connection`
   — the one call httpcore's stock backend makes — is made to raise for the duration of a request
   that then succeeds.
