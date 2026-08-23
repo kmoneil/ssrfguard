@@ -28,14 +28,17 @@ import socket
 import ssl
 from collections.abc import Iterator
 
+import anyio
+import anyio.from_thread
+import httpcore
 import httpx
 import pytest
 import requests
 import trustme
 import urllib3.poolmanager
 
-from ssrfguard import BlockedAddressError, BlockedURLError, Policy, SSRFGuardError
-from ssrfguard.httpx import SafeBackend, SafeTransport
+from ssrfguard import Address, BlockedAddressError, BlockedURLError, Policy, SSRFGuardError, connect
+from ssrfguard.httpx import AsyncSafeBackend, SafeBackend, SafeTransport
 from ssrfguard.requests import SafeAdapter
 
 from .adapters_under_test import ADAPTER_IDS, ADAPTERS, Adapter, Trust
@@ -490,3 +493,115 @@ def test_only_requests_can_refuse_a_proxy_from_the_low_level_object(
     with httpx.Client(transport=transport, proxy="http://127.0.0.1:9") as client:
         routed = client._transport_for_url(httpx.URL(f"http://pinned.test:{server.port}/"))
     assert routed is not transport, "httpx stopped preferring the proxy transport; re-read this"
+
+
+# ---------------------------------------------------------------------------------------------
+# The synchronous-versus-asynchronous axis.
+#
+# Everything above this line runs each assertion once per client, which catches httpx drifting
+# from requests. It cannot catch `ssrfguard.httpx.Client` drifting from `ssrfguard.httpx.
+# AsyncClient`, because those two share a file and a docstring but not a line of failover code --
+# one drives a socket, the other drives anyio. That gap has produced three divergences: the
+# async path once raised on the first timeout where the sync path failed over, it built its
+# "could not connect" message from a second copy of the same code, and it dropped the cause of
+# the failure the sync path chains. The rows below are that axis.
+# ---------------------------------------------------------------------------------------------
+
+
+def _unused_port() -> int:
+    """A loopback port with nothing listening, so a connection to it is refused rather than hung.
+
+    Returns:
+        A port number that was free a moment ago.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def _dead_addresses(port: int, count: int) -> tuple[Address, ...]:
+    """Validated answers pointing at loopback addresses with nothing listening.
+
+    Args:
+        port: The port to aim at.
+        count: How many addresses to build.
+
+    Returns:
+        Addresses in `resolve`'s own shape.
+    """
+    return tuple(
+        Address(
+            family=socket.AF_INET,
+            sockaddr=(f"127.0.0.{n}", port),
+            ip=ipaddress.ip_address(f"127.0.0.{n}"),
+            hostname="dead.test",
+        )
+        for n in range(1, count + 1)
+    )
+
+
+def test_both_httpx_clients_report_an_exhausted_sequence_identically() -> None:
+    """One rule, and it used to be written twice.
+
+    The loops cannot merge -- socket on one side, anyio on the other -- but the message is pure,
+    and it was character-identical in both, which makes it the half that drifts without anyone
+    noticing: a reworded failure line on one client and not the other is invisible until somebody
+    greps a log for it. Shared now, and this is what says so.
+    """
+    port = _unused_port()
+    policy = Policy(allowed_networks=LOOPBACK, allowed_ports=frozenset({port}))
+    addresses = _dead_addresses(port, 6)
+
+    with pytest.raises(OSError) as synchronous:
+        connect(addresses, policy=policy, timeout=2)
+
+    async def asynchronously() -> str:
+        backend = AsyncSafeBackend(policy=policy)
+        with pytest.raises(httpcore.ConnectError) as caught:
+            await backend._first_reachable(addresses, 2, None, None)
+        return str(caught.value)
+
+    with anyio.from_thread.start_blocking_portal() as portal:
+        asynchronous = portal.call(asynchronously)
+    synchronously = str(synchronous.value)
+
+    # **The envelope is ours and must match; the per-attempt reason is each stack's own and must
+    # not be forced to.** A socket reports `[Errno 111] Connection refused`; anyio reports `All
+    # connection attempts failed` for the same event. Asserting those equal would be asserting
+    # something this package does not decide, and the first version of this test did exactly
+    # that and failed for a reason that was not a bug.
+    prefix = "could not connect to any validated address: "
+    suffix = "; 2 further address(es) not tried (max_connection_attempts=4)"
+    for message in (synchronously, asynchronous):
+        assert message.startswith(prefix)
+        assert message.endswith(suffix)
+        assert [f"127.0.0.{n}:{port} (via dead.test)" in message for n in range(1, 5)] == [True] * 4
+        assert f"127.0.0.5:{port}" not in message, "the cap must stop the sequence, not the report"
+
+
+def test_both_httpx_clients_chain_the_failure_that_caused_the_refusal() -> None:
+    """The divergence that was live.
+
+    The synchronous path raises `from last`; the asynchronous one raised outside any `except`, so
+    `__cause__` and `__context__` were both None and an operator reading the traceback got "could
+    not connect to any validated address" with nothing underneath it. Two clients, one promise,
+    and the diagnosis differed.
+    """
+    port = _unused_port()
+    policy = Policy(allowed_networks=LOOPBACK, allowed_ports=frozenset({port}))
+    addresses = _dead_addresses(port, 2)
+
+    with pytest.raises(OSError) as synchronous:
+        connect(addresses, policy=policy, timeout=2)
+    assert isinstance(synchronous.value.__cause__, OSError)
+
+    async def asynchronously() -> BaseException | None:
+        backend = AsyncSafeBackend(policy=policy)
+        with pytest.raises(httpcore.ConnectError) as caught:
+            await backend._first_reachable(addresses, 2, None, None)
+        return caught.value.__cause__
+
+    with anyio.from_thread.start_blocking_portal() as portal:
+        cause = portal.call(asynchronously)
+
+    assert isinstance(cause, OSError), "the async client dropped the cause the sync one keeps"

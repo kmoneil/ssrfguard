@@ -39,7 +39,7 @@ from ssrfguard._policy import Policy
 from ssrfguard._resolve import Address
 from ssrfguard.errors import BlockedAddressError
 
-__all__ = ["SocketOption", "connect"]
+__all__ = ["SocketOption", "connect", "exhausted"]
 
 #: One ``setsockopt`` call, in every shape the clients express one. Three elements is the common
 #: form; four is CPython's ``setsockopt(level, optname, None, optlen)``, which httpcore's own
@@ -47,6 +47,31 @@ __all__ = ["SocketOption", "connect"]
 #: unchanged**, for the same reason the sockaddr is: a value taken apart here is a value that can
 #: lose something on the way back together.
 SocketOption = tuple[int, int, "int | bytes | bytearray"] | tuple[int, int, None, int]
+
+
+def exhausted(failures: Sequence[str], skipped: int, cap: int) -> str:
+    """Say what was tried, what each attempt cost, and what was left untried.
+
+    **Shared with the asynchronous backend rather than written twice.** The two failover loops
+    cannot merge -- one drives a socket and the other drives anyio -- but this half is pure and
+    was character-identical in both, which makes it the half that drifts silently: a reworded
+    failure line on one client and not the other is invisible until somebody greps a log.
+
+    Args:
+        failures: One line per attempt, in the order they were tried.
+        skipped: How many validated addresses were never tried.
+        cap: The ``max_connection_attempts`` that stopped the sequence, named because a caller
+            who sees addresses go untried needs to know which field to widen.
+
+    Returns:
+        The message for the raised error.
+    """
+    untried = (
+        ""
+        if not skipped
+        else f"; {skipped} further address(es) not tried (max_connection_attempts={cap})"
+    )
+    return f"could not connect to any validated address: {'; '.join(failures)}{untried}"
 
 
 def _open(
@@ -176,14 +201,7 @@ def connect(
             last = failed
             only_timeouts = only_timeouts and isinstance(failed, TimeoutError)
 
-    skipped = len(addresses) - len(attempted)
-    untried = (
-        ""
-        if not skipped
-        else f"; {skipped} further address(es) not tried "
-        f"(max_connection_attempts={policy.max_connection_attempts})"
-    )
-    message = f"could not connect to any validated address: {'; '.join(failures)}{untried}"
+    message = exhausted(failures, len(addresses) - len(attempted), policy.max_connection_attempts)
     # `TimeoutError` is an `OSError`, so a plain `OSError` here would be caught by the adapters'
     # `except OSError` before their `except TimeoutError` ever ran -- and a caller who
     # distinguishes "timed out" from "refused", which is what every retry and circuit-breaker
