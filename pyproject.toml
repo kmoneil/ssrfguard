@@ -290,6 +290,11 @@ ban-relative-imports = "parents"
 # S104 exists to flag. The rule stays armed everywhere else.
 "tests/test_encodings.py" = ["S104"]
 
+# The leak check is scaffolding, and this is the file that checks the scaffolding works. Its
+# subject is the plugin's internals, so reaching them is the test rather than a shortcut past
+# an API — there is no public one, and a lane that cannot fail is worse than no lane.
+"tests/test_leakcheck.py" = ["SLF001"]
+
 # **The `_dns_host` writes are this file's subject, not a shortcut around a public API.** Three
 # tests there drive urllib3 the way the requests adapter deliberately does not, to record what
 # that does to certificate verification. The whole finding is that the attribute is private,
@@ -396,6 +401,11 @@ norecursedirs = [
 # once on one interpreter; measuring it five times across the matrix produces five numbers that
 # differ for version-specific branches and gates on none of them meaningfully.
 addopts = "-ra --strict-markers --strict-config"
+# So that `-p ssrfguard_leakcheck` can find the plugin, which lives in `tests/` because it is
+# scaffolding rather than something this package ships. `-p` resolves a plugin as an importable
+# module name at start-up, before any test path has been collected, so the directory has to be
+# on the path already.
+pythonpath = ["tests"]
 xfail_strict = true
 filterwarnings = ["error"]
 markers = [
