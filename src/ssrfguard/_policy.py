@@ -204,6 +204,19 @@ class Policy:
             what both clients already do for ``Authorization`` and is not worth differing from.
         allow_proxy: Whether to proceed when a proxy is configured. Off by default, because a
             proxy resolves the target itself and pinning cannot reach it.
+        max_url_length: How long a URL may be before it is refused, unread. Checked first,
+            before anything that scans the string.
+
+            **This is a ceiling, not a ReDoS fix.** Measured across four octaves, ``check_url``
+            is strictly linear on both paths -- doubling the input doubles the time, and
+            ``_HOSTNAME`` cannot backtrack because every repetition in it must consume a literal
+            dot. What it did not have was a bound: the non-ASCII path costs about 1.9
+            microseconds per character, because the ``idna`` codec runs nameprep per label, so a
+            10MB URL was about 19 CPU-seconds of one worker. ``SECURITY.md`` says any way one
+            request can consume wall-clock without a ceiling is in scope, and this had none.
+
+            8192 because that is where nginx, Apache and IIS converge for a request line -- a
+            number a caller can recognise rather than one this package invented.
     """
 
     allowed_schemes: frozenset[str] = frozenset({"http", "https"})
@@ -218,6 +231,7 @@ class Policy:
         {"authorization", "proxy-authorization", "cookie"}
     )
     allow_proxy: bool = False
+    max_url_length: int = 8192
 
     def __post_init__(self) -> None:
         """Normalise and validate the configuration.
@@ -252,6 +266,11 @@ class Policy:
                 f"max_connection_attempts must be at least 1, got "
                 f"{self.max_connection_attempts}; a policy that permits no attempt can never "
                 f"connect to anything"
+            )
+        if self.max_url_length < 1:
+            raise ValueError(
+                f"max_url_length must be at least 1, got {self.max_url_length}; a policy that "
+                f"permits no URL can never fetch anything"
             )
         self._reject_allowing_a_translation_prefix()
 
@@ -360,6 +379,7 @@ class Policy:
         """
         if not isinstance(url, str):
             raise TypeError(f"check_url expects a string, got {type(url).__name__}")
+        self._reject_overlong(url)
         self._reject_control_characters(url)
         split = self._split(url)
         scheme = self._check_scheme(url, split)
@@ -376,6 +396,31 @@ class Policy:
         return Target(
             scheme=scheme, host=host, port=port, host_as_written=as_written, address=address
         )
+
+    def _reject_overlong(self, url: str) -> None:
+        """Refuse a URL before anything reads it.
+
+        **First, and that is the whole point.** Every other check here scans the string at least
+        once -- the control-character search, ``urlsplit``, the ``idna`` codec -- so a ceiling
+        applied after any of them is a ceiling that already paid for the thing it was meant to
+        prevent. ``len`` is the one question that costs nothing to ask.
+
+        The refusal quotes the length rather than the URL, which every other refusal in this
+        class does quote: echoing eight kilobytes of attacker-supplied text into a log line is
+        the second half of the problem this check exists for.
+
+        Args:
+            url: The URL as given.
+
+        Raises:
+            BlockedURLError: If it is longer than the policy allows.
+        """
+        if len(url) > self.max_url_length:
+            raise BlockedURLError(
+                f"<{len(url)} characters>",
+                f"is longer than max_url_length ({self.max_url_length}); refused unread, "
+                f"because every check after this one reads the whole string",
+            )
 
     @staticmethod
     def _reject_control_characters(url: str) -> None:
