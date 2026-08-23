@@ -26,8 +26,16 @@ readme = "README.md"
 #
 # Vendor support, which is what the original argument was really reaching for, is intact at
 # 3.10: Ubuntu 22.04 LTS ships it and is supported into 2027 (2032 with ESM). Upstream security
-# support ends 2026-10, which is soon, so **review this floor then** rather than treating it as
-# settled. 3.11 is the alternative and costs Ubuntu 22.04.
+# support ends 2026-10, and **the floor holds at 3.10 anyway**, decided 2026-08-23 rather than
+# left to the calendar. Upstream support was never the argument: the floor is the lowest
+# interpreter this project can actually verify, and it verifies. The whole behaviour suite runs
+# at 3.10, 430 tests; the only module that does not is `tests/test_packaging.py`, which reads
+# `pyproject.toml` with `tomllib` and is about this file rather than about `src`.
+#
+# **Move it on evidence, not on a date.** Two things would be evidence: a tool this project
+# gates with capping below what the seam was verified against, which is what moved the floor off
+# 3.9; or Ubuntu 22.04 leaving standard support in April 2027, which is when the installed base
+# this floor exists for starts shrinking. 3.11 is the alternative and costs Ubuntu 22.04.
 #
 # The cost is still paid in `src`: no `typing.Self`, no `ExceptionGroup`, and
 # `from __future__ import annotations` in every module.
