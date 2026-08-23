@@ -2,7 +2,7 @@
 
 This is the fixture the central claim rests on. Everything else in this suite drives resolution
 with a Python
-callable standing in for the resolver, which is right for testing what the policy decides -- and
+callable standing in for the resolver, which is right for testing what the policy decides, and
 structurally incapable of demonstrating the one claim on the front of this package's README,
 because a stand-in cannot change its mind between two calls that a real attacker's nameserver
 makes for a living.
@@ -160,7 +160,7 @@ class FlippingDNS:
 
         This is what a rebinding nameserver actually does, and it is the only way to catch a
         lookup that happens *inside* one call. A test that edits the dict between calls cannot
-        see a second query that both calls bracket -- measured: a `resolve` that looked up
+        see a second query that both calls bracket. Measured: a `resolve` that looked up
         twice and re-validated both times passed every other test in this file.
 
         The last entry repeats once the sequence is exhausted, so a caller does not have to
@@ -169,8 +169,8 @@ class FlippingDNS:
         **Position is tracked per record type**, so entry *n* is what the *n*th lookup of that
         record type sees. That matters because a stub resolver asks for AAAA and A separately:
         with one shared position, the first `resolve` would consume two entries and see the
-        second answer immediately. It also happens to be how a real nameserver behaves -- moving
-        an A record says nothing about the AAAA.
+        second answer immediately. It also happens to be how a real nameserver behaves, since
+        moving an A record says nothing about the AAAA.
 
         Args:
             name: The name to answer for.
@@ -250,7 +250,7 @@ def resolver_using(server: FlippingDNS, *, timeout: float = 2.0) -> object:
     """Build a `getaddrinfo`-shaped callable that asks this server.
 
     Asks for AAAA and then A, which is the order and the pair a stub resolver uses, and returns
-    the answers in that order -- so a test can rely on which address comes first without relying
+    the answers in that order, so a test can rely on which address comes first without relying
     on the platform.
 
     Args:

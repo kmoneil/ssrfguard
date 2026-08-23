@@ -2,7 +2,7 @@
 
 This type exists because every SSRF advisory of 2026 describes a validator that handed back
 something an HTTP client would accept. The defence is a return type that cannot be used that
-way -- which is a property of the *shape* of the class, so it decays the moment somebody adds a
+way, which is a property of the *shape* of the class, so it decays the moment somebody adds a
 convenience method. These tests are the fence around that.
 """
 
@@ -29,7 +29,7 @@ def test_repr_renders_the_same_debug_form_as_str() -> None:
 
     A frozen dataclass generates a `repr` that spells every field out, and that is what a
     traceback, a REPL and `print([target])` show. Leaving it in place meant the careful
-    rendering above was the one form nobody actually saw -- and the package docstring's own
+    rendering above was the one form nobody actually saw. The package docstring's own
     example claimed otherwise, which is how this was found.
     """
     target = POLICY.check_url("https://example.com/a/b?c=d#e")
@@ -104,7 +104,7 @@ def test_a_literal_address_target_says_it_needs_no_resolution() -> None:
 
 
 def test_constructing_a_target_by_hand_is_possible_and_bypasses_nothing() -> None:
-    """The type is public, so it can be built directly -- and doing so grants no permission.
+    """The type is public, so it can be built directly, and doing so grants no permission.
 
     A Target is a record of a decision, not the decision itself. Nothing downstream trusts one
     it did not see made: resolution re-checks every address it gets back, which is why hand-

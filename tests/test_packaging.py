@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import lanes  # noqa: E402
 
 # `tomllib` arrived in 3.11 and this package's floor is 3.10. The alternative is `tomli`, which
-# would be a dependency -- and a dependency acquired to test that there are no dependencies is
+# would be a dependency, and a dependency acquired to test that there are no dependencies is
 # not a trade this repository gets to make. These are assertions about repository *metadata*,
 # not about the library, so the one `compat` row below 3.11 skips them and every other row runs
 # them. `fast` runs on 3.13, so nothing here is ever unchecked.
@@ -82,7 +82,7 @@ def test_ruff_targets_the_floor_not_the_dev_interpreter(pyproject: dict) -> None
 def test_both_type_checkers_target_the_floor(pyproject: dict) -> None:
     """Both must check the floor, and one of them can only do so because of where the floor is.
 
-    mypy refuses `python_version = "3.9"` -- and warns and carries on rather than failing, so at
+    mypy refuses `python_version = "3.9"`, and warns and carries on rather than failing, so at
     a lower floor this setting would be silently ignored and the gate would check nothing while
     appearing to. That it can be asserted equal to the floor here is a property of the floor
     being 3.10, and it is one of the reasons the floor is 3.10. If the floor ever moves down,
@@ -115,7 +115,7 @@ def test_the_package_docstring_example_is_true() -> None:
     """The front page of the package is code, so it is run rather than read.
 
     Nothing else runs it: no lane passes `--doctest-modules`, and the example sat wrong for
-    several releases' worth of commits because of that -- it claimed the `<Target ...>` debug
+    several releases' worth of commits because of that: it claimed the `<Target ...>` debug
     form where a dataclass's generated `repr` was what actually came back. An example a reader
     copies is documentation with a test-shaped hole in it unless something executes it.
 

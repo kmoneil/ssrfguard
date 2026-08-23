@@ -5,8 +5,8 @@ mutating the shipped one. That makes the decoder's *unknown* cases reachable fro
 package, and an unknown case that resolves to "permitted" would be a bypass anybody could build
 by accident.
 
-None of these branches is reachable through `DEFAULT_DENIED` -- `tests/test_registry.py` asserts
-the shipped table's translated set is exactly the set the decoder understands. They are here
+None of these branches is reachable through `DEFAULT_DENIED`, because `tests/test_registry.py`
+asserts the shipped table's translated set is exactly the set the decoder understands. They are here
 because that assertion protects the shipped table and not a user's, and because a fail-closed
 path nobody has run is a path nobody has proven closes.
 """
@@ -58,8 +58,8 @@ def test_an_ipv4_block_marked_translated_is_refused() -> None:
     reached in the field, and the safe answer to "I do not understand this entry" is no.
     """
     # A block the shipped table does not carry, so this entry is the only match. Using one it
-    # *does* carry silently shadows nothing -- the shipped entry wins on stable sort order --
-    # which is how the duplicate check below came to exist.
+    # *does* carry silently shadows nothing, because the shipped entry wins on stable sort
+    # order, which is how the duplicate check below came to exist.
     table = _table_with(
         Block(
             network=ip_network("93.184.216.0/24"),
@@ -108,7 +108,7 @@ def test_a_table_with_a_duplicate_network_is_refused_at_construction() -> None:
     """A shadowed entry is a rule its author believes is in force and is not.
 
     Lookup is longest-prefix and Python's sort is stable, so two entries for one network resolve
-    to "whichever was listed first" -- which is not a rule anyone wrote down. Refusing here means
+    to "whichever was listed first", which is not a rule anyone wrote down. Refusing here means
     the mistake surfaces where it was made instead of at the one address that needed the entry
     that lost.
     """
@@ -141,7 +141,7 @@ def test_the_index_cannot_drift_from_the_blocks_it_was_built_from() -> None:
 
     ``blocks`` is the attribute with the public-looking name; every lookup reads the index derived
     from it. Appending to one without rebuilding the other left the table *reporting* a rule it
-    did not enforce -- which is this package's own failure mode, one layer down.
+    did not enforce, which is this package's own failure mode one layer down.
     """
     extra = Block(
         network=ip_network("203.0.113.0/25"),

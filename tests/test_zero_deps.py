@@ -9,7 +9,7 @@ declared metadata, which catches somebody adding an entry to ``[project.dependen
 cannot catch an adapter that imports httpx at module scope instead of lazily inside the
 function body, because this suite runs in an environment where httpx is installed and the
 eager import simply succeeds. That failure is only visible from an interpreter without the
-clients -- see ``scripts/check_zero_deps.py`` and the ``zero-deps`` lane.
+clients. See ``scripts/check_zero_deps.py`` and the ``zero-deps`` lane.
 """
 
 from __future__ import annotations

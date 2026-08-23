@@ -1,8 +1,8 @@
 """No committed file may point a reader at something they cannot open.
 
 A reader who clones this repository is told where to go and has to be able to get there. A
-citation to an ignored path -- a planning document, a scratch directory, a report -- looks
-authoritative and leads nowhere, which is the same defect class as a stale reference and worse
+citation to an ignored path, whether a planning document, a scratch directory or a report,
+looks authoritative and leads nowhere, which is the same defect class as a stale reference and worse
 in a public repository, where *every* reader is in that position.
 
 **The fix is to inline the reason, not to relocate the document.** "because `is_global` returns
@@ -31,8 +31,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 UNREACHABLE = ("_plans", "_tmp", "_reports", "_reviews")
 
 # Where a reference would be offered as reading. Configuration files name ignored directories
-# for a living -- ruff's `extend-exclude`, pytest's `norecursedirs` -- and those are exempt by
-# being outside this set rather than by a per-line waiver, so a new exemption has to be a
+# for a living, such as ruff's `extend-exclude` and pytest's `norecursedirs`. Those are exempt
+# by being outside this set rather than by a per-line waiver, so a new exemption has to be a
 # deliberate change to this tuple.
 PROSE = (".md", ".py", ".yml", ".yaml")
 

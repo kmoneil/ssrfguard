@@ -15,11 +15,11 @@ from ssrfguard import DEFAULT_DENIED, BlockedAddressError
 
 # (address, blocked, what it is). Ordered by the reason it is here, not alphabetically.
 CORPUS: tuple[tuple[str, bool, str], ...] = (
-    # -- ordinary public destinations, which must keep working --
+    # ordinary public destinations, which must keep working
     ("8.8.8.8", False, "public IPv4"),
     ("1.1.1.1", False, "public IPv4"),
     ("2606:4700:4700::1111", False, "public IPv6"),
-    # -- the classics --
+    # the classics
     ("127.0.0.1", True, "loopback"),
     ("10.0.0.1", True, "RFC1918"),
     ("172.16.0.1", True, "RFC1918"),
@@ -31,14 +31,14 @@ CORPUS: tuple[tuple[str, bool, str], ...] = (
     ("::", True, "IPv6 unspecified"),
     ("fe80::1", True, "IPv6 link-local"),
     ("fc00::1", True, "IPv6 unique-local"),
-    # -- where is_private alone says False --
+    # where is_private alone says False
     ("100.64.0.1", True, "CGNAT; is_private=False"),
     ("192.88.99.1", True, "deprecated 6to4 relay anycast; is_global=True"),
     ("fec0::1", True, "deprecated site-local; is_global=True"),
     ("ff02::1", True, "IPv6 all-nodes multicast; is_global=True"),
     ("224.0.0.1", True, "IPv4 all-hosts multicast; no stdlib private/global answer"),
     ("239.255.255.250", True, "SSDP multicast"),
-    # -- where the registries alone say nothing --
+    # where the registries alone say nothing
     ("5f00::1", True, "SRv6 SIDs; IANA says not reachable, is_global=True"),
     ("100:0:0:1::1", True, "RFC9780 dummy prefix; is_global=True"),
     ("2001:2::1", True, "IPv6 benchmarking"),
@@ -50,7 +50,7 @@ CORPUS: tuple[tuple[str, bool, str], ...] = (
     ("3fff::1", True, "documentation, allocated 2024"),
     ("240.0.0.1", True, "reserved"),
     ("100::1", True, "discard-only"),
-    # -- translation prefixes carrying something internal --
+    # translation prefixes carrying something internal
     ("64:ff9b::7f00:1", True, "NAT64 carrying 127.0.0.1; is_global=True"),
     ("64:ff9b::a00:1", True, "NAT64 carrying 10.0.0.1"),
     ("64:ff9b::a9fe:a9fe", True, "NAT64 carrying 169.254.169.254"),
@@ -60,11 +60,11 @@ CORPUS: tuple[tuple[str, bool, str], ...] = (
     ("::7f00:1", True, "IPv4-compatible carrying loopback; registries omit the prefix"),
     ("::a00:1", True, "IPv4-compatible carrying 10.0.0.1"),
     ("64:ff9b:1::7f00:1", True, "RFC8215 local-use translation prefix"),
-    # -- translation prefixes carrying something public, which must NOT be refused --
+    # translation prefixes carrying something public, which must NOT be refused
     ("64:ff9b::808:808", False, "NAT64 carrying 8.8.8.8"),
     ("::ffff:8.8.8.8", False, "IPv4-mapped carrying 8.8.8.8"),
     ("2002:808:808::", False, "6to4 carrying 8.8.8.8"),
-    # -- IANA marks these globally reachable and refusing them buys nothing --
+    # IANA marks these globally reachable and refusing them buys nothing
     ("192.0.0.9", False, "Port Control Protocol anycast"),
     ("192.0.0.10", False, "TURN anycast"),
     ("192.31.196.1", False, "AS112-v4"),

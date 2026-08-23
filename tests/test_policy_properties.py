@@ -23,7 +23,7 @@ Refusal = BlockedURLError | BlockedAddressError
 def refusal_for(url: str, policy: Policy = POLICY) -> Refusal | None:
     """Check a URL and return the refusal, if there was one.
 
-    Hypothesis properties are about *either* outcome, so `pytest.raises` does not fit -- it
+    Hypothesis properties are about *either* outcome, so `pytest.raises` does not fit: it
     asserts that a call raises, and here raising is one of two correct answers. Capturing the
     exception and asserting outside the handler keeps the assertions where a reader can see
     which branch they belong to.
@@ -64,7 +64,7 @@ def test_a_denied_address_is_never_reachable_as_a_url(address: object) -> None:
     """The property the whole layer rests on: no URL spelling launders a denied address.
 
     Whatever the policy says about the bare address, it must say the same about the URL that
-    names it -- otherwise the URL parser is a bypass around the address table.
+    names it. Otherwise the URL parser is a bypass around the address table.
     """
     literal = f"[{address}]" if isinstance(address, ipaddress.IPv6Address) else str(address)
     url = f"http://{literal}/"

@@ -1,7 +1,7 @@
 """Connecting to a validated address, against real sockets on loopback.
 
 No fake socket layer here. The thing under test *is* the socket call, and a stand-in for it
-would only confirm what its author already believed -- the sockaddr shape, the failover order
+would only confirm what its author already believed. The sockaddr shape, the failover order
 and the peer check are all properties of the real thing or of nothing.
 
 Loopback is denied by the shipped table, so these use a policy that explicitly permits it. That
@@ -221,8 +221,8 @@ def test_a_peer_that_is_not_the_validated_address_is_refused_and_the_socket_clos
 
     `connect` to a specific address cannot land elsewhere, so nothing reachable through the
     public API triggers this. It is the answer to everything between this process and the wire
-    -- a transparent proxy, a redirecting firewall rule -- and a defence nobody has run is a
-    defence nobody has proven.
+    such as a transparent proxy or a redirecting firewall rule, and a defence nobody has run is
+    a defence nobody has proven.
     """
     host, port = listener
     opened: list[socket.socket] = []
@@ -254,7 +254,7 @@ def test_the_sockaddr_reaches_connect_byte_for_byte(
     """The tuple the resolver produced is the tuple `connect` gets, asserted directly.
 
     Written this way because the indirect version does not work. Every other test here uses
-    IPv4, where a rebuilt `(str(ip), port)` is byte-for-byte what the resolver produced -- so
+    IPv4, where a rebuilt `(str(ip), port)` is byte-for-byte what the resolver produced, so
     replacing the pass-through with a rebuild changed nothing that any of them could see. The
     difference only appears for IPv6 with a non-zero scope identifier, which needs a
     link-local address on a real interface to arrange.
@@ -323,7 +323,7 @@ def test_connects_over_ipv6_loopback() -> None:
 # `tests/test_async_adapter.py` gives where it makes the same point: "an address that reliably
 # blackholes" is not something a test suite can count on, and a security test that fails
 # intermittently gets deleted. What is under test here is the sequencing, which is where the
-# bug was -- not the socket layer, which is the standard library's.
+# bug was, not the socket layer, which is the standard library's.
 # ---------------------------------------------------------------------------------------------
 
 
@@ -332,7 +332,7 @@ def scripted_open(monkeypatch: pytest.MonkeyPatch, *outcomes: type[OSError] | No
 
     Args:
         monkeypatch: pytest's patcher.
-        *outcomes: One entry per attempt -- an exception class to raise, or ``None`` to
+        *outcomes: One entry per attempt: an exception class to raise, or ``None`` to
             succeed. Attempts past the end repeat the last entry, so a single entry is
             "every attempt does this".
 
@@ -360,7 +360,7 @@ def test_no_more_than_max_connection_attempts_addresses_are_tried(
     `timeout` is per attempt, and how many attempts there are is decided by whoever runs the
     authoritative server for the name being fetched. Uncapped, a zone answering with two
     hundred permitted addresses that all drop packets turns one request into two hundred times
-    the timeout the caller asked for -- a worker held for as long as the attacker cares to hold
+    the timeout the caller asked for: a worker held for as long as the attacker cares to hold
     it, on a path that reads as a slow upstream rather than as an attack.
     """
     tried = scripted_open(monkeypatch, TimeoutError)
@@ -409,7 +409,7 @@ def test_a_sequence_that_only_timed_out_raises_a_timeout(
 ) -> None:
     """`TimeoutError` is an `OSError`, so raising a plain one here is caught by the adapters'
     `except OSError` before their `except TimeoutError` ever runs. A caller that distinguishes
-    "timed out" from "refused" -- which is what every retry and every circuit breaker does --
+    "timed out" from "refused", which is what every retry and every circuit breaker does,
     would be told the wrong one, and told it by the guard rather than by the client."""
     scripted_open(monkeypatch, TimeoutError)
 
@@ -455,7 +455,7 @@ def test_a_timed_out_attempt_is_failed_over_from(monkeypatch: pytest.MonkeyPatch
 def test_the_exhausted_message_is_one_function_both_clients_call() -> None:
     """The half of failover that is pure, and the half that drifted.
 
-    The two loops cannot merge -- one drives a socket, the other drives anyio -- so this is
+    The two loops cannot merge, since one drives a socket and the other drives anyio, so this is
     tested here as a function rather than only through both paths. `tests/test_adapter_parity.py`
     asserts the two clients actually call it.
     """

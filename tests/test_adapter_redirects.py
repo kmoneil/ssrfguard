@@ -6,7 +6,7 @@ the client follow a redirect with no re-validation, so *a URL pointing at a publ
 30x-redirects to an internal address fully bypasses it*.
 
 So this file is one matrix run against both adapters rather than two suites that agree today.
-Every row here is a hop shape, and the two clients have to answer each one the same way -- which
+Every row here is a hop shape, and the two clients have to answer each one the same way, which
 is not automatic: measured before any of this was written, requests answered a hop to ``file:``
 with its own "no connection adapters were found" while httpx answered with a policy refusal, and
 both capped the chain with their own counter (thirty and twenty) rather than the policy's five.
@@ -169,8 +169,8 @@ def test_a_hop_to_a_refused_scheme_is_refused_by_this_package(
 ) -> None:
     """A hop that changes the scheme is a policy question, not a client question.
 
-    Measured before this was written: requests answered this with `InvalidSchema` -- its own
-    error, about its own mounts, meaning nothing about a policy -- because nothing is mounted for
+    Measured before this was written: requests answered this with `InvalidSchema`, its own
+    error about its own mounts, meaning nothing about a policy, because nothing is mounted for
     `file://`. A caller catching `SSRFGuardError` would have missed it entirely.
     """
     first.routes["/tofile"] = (302, {"Location": "file:///etc/passwd"}, b"")
@@ -188,7 +188,7 @@ def test_a_loop_is_cut_by_the_policys_limit(adapter: Adapter, first: RecordingSe
     """A redirect that points at itself, stopped at the policy's number rather than the client's.
 
     The counter matters as much as the cut. Both clients default to an order of magnitude more
-    hops -- thirty for requests, twenty for httpx -- and both can be reconfigured without
+    hops, thirty for requests and twenty for httpx, and both can be reconfigured without
     touching the policy, which is what stops their limit being a control.
     """
     policy = policy_for(first, max_redirects=3)
@@ -244,7 +244,7 @@ def test_a_relative_location_resolves_against_the_hostname(
     A guard that pinned by rewriting the request URL to the validated address would resolve
     ``Location: /admin`` against *that*, so the next hop targets the address directly and the
     name it was checked under is gone. Nothing here rewrites a URL, so there is nothing to
-    resolve against but the hostname -- which is a property of the seam rather than a rule
+    resolve against but the hostname, which is a property of the seam rather than a rule
     anybody follows.
     """
     first.routes["/rel"] = (302, {"Location": "/relative-target"}, b"")
@@ -267,7 +267,7 @@ def test_a_cross_origin_hop_drops_the_policys_sensitive_headers(
     """Both clients already drop `Authorization`. Neither drops a credential named by convention.
 
     ``X-Api-Key`` is a credential because a shop decided it is, not because a specification says
-    so -- which is why the policy takes the name from the caller rather than this package
+    so, which is why the policy takes the name from the caller rather than this package
     guessing at a list. Measured before this was written: it travelled to the second origin
     under both clients.
     """
@@ -287,7 +287,7 @@ def test_a_cross_origin_hop_drops_the_policys_sensitive_headers(
 def test_a_same_origin_hop_keeps_them(adapter: Adapter, first: RecordingServer) -> None:
     """Stripping on every hop would be a false refusal wearing a security hat.
 
-    A redirect within one origin is the ordinary case -- a trailing slash, a canonical path --
+    A redirect within one origin is the ordinary case, a trailing slash or a canonical path,
     and dropping credentials there breaks every authenticated client for no gain.
     """
     policy = policy_for(first, sensitive_headers={"authorization", "x-api-key"})
@@ -387,7 +387,7 @@ def test_a_policy_of_zero_refuses_a_redirect_it_was_never_going_to_follow(
     """The boundary, pinned because it is defensible *and* surprising.
 
     `max_redirects=0` reads as "do not follow redirects" and means "a redirect is refused". Even
-    with following switched off at the call, a single 302 raises -- because both clients build
+    with following switched off at the call, a single 302 raises, because both clients build
     the next request in order to expose it (`response.next_request` on httpx,
     `response.next` on requests) and the cap fires on the build rather than on the send.
 

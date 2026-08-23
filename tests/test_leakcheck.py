@@ -4,9 +4,9 @@ A leak check written after the leaks exist is a leak check written to pass, and 
 never caught anything is indistinguishable from one that cannot. So the mechanism is exercised
 directly here: hold a socket open and assert it is seen; close it and assert it is not.
 
-These run in every lane. Importing the plugin does not arm it -- the autouse fixture only exists
-for a run that loaded it with ``-p ssrfguard_leakcheck`` -- so this costs the gating lane two
-cheap tests and nothing else.
+These run in every lane. Importing the plugin does not arm it, because the autouse fixture only
+exists for a run that loaded it with ``-p ssrfguard_leakcheck``, so this costs the gating lane
+two cheap tests and nothing else.
 """
 
 from __future__ import annotations

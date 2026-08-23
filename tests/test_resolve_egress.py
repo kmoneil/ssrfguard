@@ -1,6 +1,6 @@
 """Resolution against the real resolver.
 
-Everything else in this layer is driven by a fake, which is right -- a fake is the only way to
+Everything else in this layer is driven by a fake, which is right: a fake is the only way to
 arrange a name that resolves both ways. What a fake cannot show is that the *real* getaddrinfo
 call is shaped correctly: the flags, the argument order, the socket type, and the fact that a
 literal address takes a path that cannot perform a lookup at all.

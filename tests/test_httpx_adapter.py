@@ -4,7 +4,7 @@ The guarantees this package makes are asserted once, against both adapters, in
 ``tests/test_adapter_parity.py``. What is left here is the part that only means something for
 this seam.
 
-Two things in particular. **The stream the backend returns is httpcore's own class** -- that is
+Two things in particular. **The stream the backend returns is httpcore's own class**, and that is
 what keeps "this package cannot verify a certificate against the address it pinned" true, because
 a stream written here would carry a ``server_hostname`` argument of its own, correct today and
 one careless edit from being an address. And **the client factory**, which exists because a
@@ -170,7 +170,7 @@ def test_the_backend_returns_httpcores_own_stream(server: RecordingServer) -> No
     """The TLS path stays httpcore's code, and this is what says so.
 
     ``start_tls`` is where a hostname becomes a certificate check. This package does not
-    implement it -- the stream handed back is httpcore's, so ``server_hostname`` never passes
+    implement it: the stream handed back is httpcore's, so ``server_hostname`` never passes
     through a line anybody here wrote. If that stops being true, this fails and whoever changed
     it has to make the argument again.
     """
@@ -298,7 +298,7 @@ def test_a_proxy_on_the_transport_is_refused() -> None:
 
 
 def test_allow_proxy_leaves_httpxs_own_proxy_pool_in_place(server: RecordingServer) -> None:
-    """With ``allow_proxy``, enforcement really has moved -- and this says what that means.
+    """With ``allow_proxy``, enforcement really has moved, and this says what that means.
 
     The pool is httpx's, not a pinning one. Replacing it would pin the *proxy's* address while
     leaving the target unchecked, which is a guard reporting a decision it never made.
@@ -316,7 +316,7 @@ def test_an_environment_proxy_does_not_reach_a_client_given_a_transport(
 ) -> None:
     """httpx computes ``allow_env_proxies = trust_env and transport is None``.
 
-    So handing it a transport already neutralises ``HTTP_PROXY`` -- which is good, and is not
+    So handing it a transport already neutralises ``HTTP_PROXY``, which is good and is not
     enough on its own, because an explicit ``proxy=`` on the *client* builds a separate
     transport that this one never sees. That gap is the client factory's to close.
     """
@@ -386,7 +386,7 @@ def test_an_environment_that_proxies_nothing_is_not_a_refusal(
 def test_a_no_proxy_entry_on_its_own_is_not_a_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     """``NO_PROXY`` without a proxy still puts an entry in httpx's map, and its value is ``None``.
 
-    The sibling above covers ``NO_PROXY=*``, which makes httpx return an *empty* map -- so the
+    The sibling above covers ``NO_PROXY=*``, which makes httpx return an *empty* map, so the
     loop in ``_environment_proxy`` never runs and the ``None`` entry is never seen. This is the
     case where it is: one entry, no proxy behind it, and the loop has to keep looking rather than
     read "there is a key here" as "a proxy applies". Getting that wrong refuses every client on
@@ -443,7 +443,7 @@ def test_verify_reaches_the_transport_rather_than_being_ignored(
 
     Silently. For an argument whose whole job is certificate verification, a caller believing
     they set it when they did not is the worst possible no-op, so this class routes it to the
-    transport -- and this asserts the routing by making a handshake that only succeeds if it
+    transport, and this asserts the routing by making a handshake that only succeeds if it
     arrived.
     """
     resolver = Resolver(**{"right.test": "127.0.0.1"})
@@ -501,6 +501,6 @@ def test_httpx_has_not_grown_an_argument_this_class_has_not_considered() -> None
         _TRANSPORT_OPTIONS | _SHARED_OPTIONS | _ROUTING_OPTIONS | _CLIENT_OPTIONS | {"transport"}
     )
     assert declared <= considered, (
-        f"httpx.Client grew {sorted(declared - considered)}; route it deliberately -- if it "
+        f"httpx.Client grew {sorted(declared - considered)}; route it deliberately, because if "
         f"decides where a request goes, it belongs in the refused set"
     )

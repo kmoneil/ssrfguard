@@ -1,7 +1,7 @@
 """What `check_url` decides, over a corpus of URLs written to get past it.
 
 Every refusal here was measured against `urllib.parse.urlsplit`'s actual behaviour rather than
-its documented one -- several of the entries exist because the two differ.
+its documented one, and several of the entries exist because the two differ.
 """
 
 from __future__ import annotations
@@ -29,14 +29,14 @@ PERMITTED: tuple[tuple[str, str], ...] = (
 )
 
 REFUSED: tuple[tuple[str, str], ...] = (
-    # -- scheme --
+    # scheme
     ("file:///etc/passwd", "file: is absent from the allow set by construction"),
     ("gopher://example.com/", "gopher: likewise"),
     ("ftp://example.com/", "ftp: likewise"),
     ("//example.com/", "no scheme at all"),
     ("/just/a/path", "relative URL names no origin"),
     ("example.com", "bare host is not a URL"),
-    # -- authority --
+    # authority
     ("http://evil.com@127.0.0.1/", "the disguise: text before '@' is not the host"),
     ("http://user:pass@example.com/", "credentials leak into logs and redirect chains"),
     ("http://", "no host"),
@@ -47,33 +47,33 @@ REFUSED: tuple[tuple[str, str], ...] = (
     ("http://-example.com/", "a label may not start with a hyphen"),
     ("http://%65xample.com/", "percent-encoding the resolver will not decode"),
     ("http://[fe80::1%25lo]/", "an IPv6 zone identifier is link-local scope"),
-    # -- control characters urlsplit strips silently --
+    # control characters urlsplit strips silently
     ("http://exa\nmple.com/", "newline; urlsplit removes it, so checked != parsed"),
     ("http://example.com\t/", "tab, same"),
     ("http://example.com\r/", "carriage return, same"),
     ("http://exam ple.com/", "space, same class"),
-    # -- ports --
+    # ports
     ("http://example.com:8080/", "8080 is not in the default allow set"),
     ("http://example.com:22/", "ssh"),
     ("http://example.com:0/", "port 0 is not a port"),
     ("http://example.com:99999/", "out of range; urlsplit's .port raises"),
     ("http://example.com:-1/", "negative"),
     ("http://example.com:abc/", "not a number"),
-    # -- literal addresses the table denies --
+    # literal addresses the table denies
     ("http://127.0.0.1/", "loopback"),
     ("http://169.254.169.254/", "cloud metadata"),
     ("http://[::1]/", "IPv6 loopback"),
     ("http://10.0.0.1/", "RFC1918"),
     ("http://[64:ff9b::7f00:1]/", "NAT64 carrying loopback"),
     ("http://0.0.0.0/", "unspecified, which reaches localhost"),
-    # -- encoded addresses, which are not valid literals and not hostnames either --
+    # encoded addresses, which are not valid literals and not hostnames either
     ("http://0177.0.0.1/", "octal"),
     ("http://2130706433/", "integer"),
     ("http://127.1/", "short form"),
     ("http://1.2.3.4.5/", "digits and dots, not an address"),
     ("http://0/", "a bare zero; getaddrinfo returns 0.0.0.0 for it. Found by Hypothesis"),
     ("http://1/", "same shape, and 0.0.0.1 is inside 0.0.0.0/8"),
-    # -- Unicode that normalises to an address --
+    # Unicode that normalises to an address
     ("http://①②⑦.0.0.1/", "circled digits normalise to 127.0.0.1"),
     ("http://127。0。0。1/", "ideographic full stop is a label separator"),
 )
@@ -83,7 +83,7 @@ REFUSED: tuple[tuple[str, str], ...] = (
 #
 # These reach an internal address and `check_url` permits every one of them, because deciding
 # where a *name* points requires resolving it and nothing here resolves anything. They are not
-# gaps -- they are the reason `check_url` returns a `Target` instead of a URL, and the reason
+# gaps. They are the reason `check_url` returns a `Target` instead of a URL, and the reason
 # its docstring says "necessary and not sufficient" in the first paragraph.
 #
 # If one of these ever starts being refused here, that is a string-matching fast path and it

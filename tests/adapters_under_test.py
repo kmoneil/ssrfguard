@@ -3,7 +3,7 @@
 This exists because the two seams share no code. httpx is pinned at ``httpcore``'s network
 backend and requests at ``urllib3``'s ``_new_conn``; a behaviour fixed in one is not fixed in the
 other, and the way that surfaces is a user reporting that one adapter refuses something the other
-allows -- which is the wrong way round to find out.
+allows, which is the wrong way round to find out.
 
 So the guarantees that cross live in one parameterised file, and **adding an adapter means adding
 a row here rather than writing a suite**. What each row has to supply is the small set of things
@@ -41,8 +41,8 @@ class Trust:
 
     Attributes:
         path: The PEM on disk, which is what requests takes.
-        context: A client context that trusts it, which is what httpx takes -- httpx deprecated
-            the path form.
+        context: A client context that trusts it, which is what httpx takes, since httpx
+            deprecated the path form.
     """
 
     path: str
@@ -57,7 +57,7 @@ class Adapter:
         name: What a parameter id shows.
         opened: Build a guarded client as a context manager.
         fetch: Make one request, following redirects.
-        native: The ``(owner, attribute)`` of the client's *own* connect function -- the one
+        native: The ``(owner, attribute)`` of the client's *own* connect function, the one
             the seam replaces. A test makes it raise to prove nothing fell through to it. The
             owner is a module for two of these and a class for the third, which is only where
             each client happens to keep it.
@@ -113,7 +113,7 @@ class Portalled:
 
     The alternative was a third copy of every guarantee, written in ``async def``. anyio's
     blocking portal runs one event loop in a background thread and submits coroutines to it, so
-    the async client keeps its pool across calls -- which matters, because "a pooled second
+    the async client keeps its pool across calls, which matters because "a pooled second
     request asks nothing" is one of the rows.
 
     Attributes:

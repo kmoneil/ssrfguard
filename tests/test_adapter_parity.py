@@ -7,7 +7,7 @@ both. A behaviour fixed in one adapter and not the other shows up as a failure i
 rather than as a bug report saying one of them allows something the other refuses.
 
 **The asymmetries are a list, not an assumption.** Two guarantees genuinely do not cross, and
-each has a test below asserting that it still does not -- so an exception is visible rather than
+each has a test below asserting that it still does not, so an exception is visible rather than
 inferred from a suite that quietly only tests one side:
 
 1. *A unix socket is refused only where one can be asked for.* httpx takes ``uds=`` and httpcore
@@ -19,12 +19,12 @@ inferred from a suite that quietly only tests one side:
    the httpx surface needs a client and the requests surface does not.
 3. *``socket_options`` are applied before connect on ``Client`` and after connect on
    ``AsyncClient``.* anyio owns socket creation on the asynchronous path, so there is no
-   unconnected socket to reach -- and getting one would mean writing the stream, and with it the
+   unconnected socket to reach, and getting one would mean writing the stream, and with it the
    ``server_hostname`` line this package's seam exists in order not to have.
 
 **There is a third axis, and it was missing.** The rows above run once per client, which catches
 httpx drifting from requests. Nothing caught ``Client`` drifting from ``AsyncClient``, which
-share a file and a docstring but not a line of failover code -- and that gap had already produced
+share a file and a docstring but not a line of failover code, and that gap had already produced
 three divergences by the time anyone looked. The synchronous-versus-asynchronous section at the
 end of this file is that axis.
 
@@ -62,7 +62,7 @@ LOOPBACK = ("127.0.0.0/8",)
 METADATA = "169.254.169.254"
 
 #: What a refused handshake arrives as. The two clients wrap the same `ssl` failure in their
-#: own exception, and which one is not a guarantee this package makes -- that it is refused
+#: own exception, and which one is not a guarantee this package makes. That it is refused
 #: at all is.
 TLS_REFUSED = (requests.exceptions.SSLError, httpx.ConnectError)
 
@@ -178,13 +178,13 @@ def test_the_clients_own_connect_path_is_never_entered(
     """Two claims, both made by breaking what would have to be used if either were false.
 
     Each client has one function that resolves a name and opens a socket, and each seam replaces
-    it -- so making that raise turns "we believe the override took" into a checked claim.
+    it, so making that raise turns "we believe the override took" into a checked claim.
 
     And ``socket.getaddrinfo`` is made to refuse any host that is not already an address. That
     is the *behavioural* half and it is the one that generalises: whatever a client does
     internally, a name reaching the platform resolver is a lookup this package did not make and
     did not validate. Numeric hosts are still allowed through, because a numeric parse is not a
-    lookup -- it is how an address becomes a sockaddr.
+    lookup. It is how an address becomes a sockaddr.
     """
 
     def refuse(*_args: object, **_kwargs: object) -> socket.socket:
@@ -236,7 +236,7 @@ def test_a_pooled_second_request_asks_nothing(adapter: Adapter, server: Recordin
 
 
 # ---------------------------------------------------------------------------------------------
-# TLS -- the assertion neither adapter may ever fail
+# TLS: the assertion neither adapter may ever fail
 # ---------------------------------------------------------------------------------------------
 
 
@@ -244,7 +244,7 @@ def test_the_handshake_carries_the_hostname_and_never_the_address(
     adapter: Adapter, tls_server: RecordingServer, trust: Trust
 ) -> None:
     """Read off the wire. Python will not put an IP literal in ``server_name``, so a client
-    pinned by rewriting its origin would have sent no name at all -- and a certificate checked
+    pinned by rewriting its origin would have sent no name at all, and a certificate checked
     against an address is the one failure this package must never produce."""
     resolver = Resolver(**{"right.test": "127.0.0.1"})
     with adapter.opened(policy_for(tls_server.port), resolver, trust) as client:
@@ -332,7 +332,7 @@ def test_credentials_in_the_authority_are_refused(
 ) -> None:
     """Both clients keep userinfo in the prepared URL, so both adapters can see it and refuse.
 
-    Measured rather than assumed -- if either client ever moved credentials into a header before
+    Measured rather than assumed. If either client ever moved credentials into a header before
     the URL reached us, this would stop being a guarantee that crosses and would have to become
     an entry on the asymmetry list instead.
     """
@@ -402,7 +402,7 @@ def test_every_new_connection_is_validated_on_its_own_merits(
     """A pin holds for the connection it was made for, and the next one starts over.
 
     The record moves after the first request. Nothing can move a connection that is already
-    open -- and nothing keeps the old answer alive for the next one either, which is the other
+    open, and nothing keeps the old answer alive for the next one either, which is the other
     half of being correct here.
     """
     resolver = Resolver(**{"moving.test": "127.0.0.1"})
@@ -432,7 +432,7 @@ def test_a_name_resolving_both_ways_is_refused_whole(
     """``on_partial_block="reject"`` is the default, and it has to reach this far.
 
     A name answering with one permitted and one denied address is the signature of a rebinding
-    attempt rather than of a misconfiguration, so the whole name is refused -- including the
+    attempt rather than of a misconfiguration, so the whole name is refused, including the
     answer that would have been fine.
     """
     resolver = Resolver(**{"both.test": ["127.0.0.1", METADATA]})
@@ -554,7 +554,8 @@ def _dead_addresses(port: int, count: int) -> tuple[Address, ...]:
 def test_both_httpx_clients_report_an_exhausted_sequence_identically() -> None:
     """One rule, and it used to be written twice.
 
-    The loops cannot merge -- socket on one side, anyio on the other -- but the message is pure,
+    The loops cannot merge, with a socket on one side and anyio on the other, but the message
+    is pure,
     and it was character-identical in both, which makes it the half that drifts without anyone
     noticing: a reworded failure line on one client and not the other is invisible until somebody
     greps a log for it. Shared now, and this is what says so.
@@ -626,8 +627,8 @@ def test_socket_options_land_before_connect_on_one_client_and_after_on_the_other
     The synchronous backend sets options on a socket it created and has not connected; the
     asynchronous one sets them on the socket anyio hands back, already connected. So `SO_SNDBUF`
     window scaling, `TCP_FASTOPEN`, `SO_BINDTODEVICE` and `IP_TOS` on the SYN work on `Client`
-    and do nothing at all on `AsyncClient` -- no error, no warning, across two classes documented
-    as the same guarantee.
+    and do nothing at all on `AsyncClient`, with no error and no warning, across two classes
+    documented as the same guarantee.
 
     It is not fixable without owning socket creation, which means writing the stream, which means
     writing the `server_hostname` line this seam exists in order not to have. So it is pinned
