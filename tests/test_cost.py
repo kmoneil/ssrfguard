@@ -26,12 +26,13 @@ ratchets above the tree and were lowered as the work behind them landed, which i
 
 from __future__ import annotations
 
+import contextlib
 from unittest import mock
 
 import pytest
 
 import cost_corpus
-from ssrfguard import Policy, _policy
+from ssrfguard import Policy, SSRFGuardError, _policy
 
 #: How many times ``check_url`` may parse its host as an address.
 #:
@@ -61,10 +62,23 @@ _MAX_HOST_PARSES = 1
 #: Measured at 9.1 to 11.3 across the five supported interpreters. It was 251 before a host
 #: longer than DNS can carry was refused before normalisation rather than after.
 #:
-#: 30 rather than 12, because this runs on at least two architectures and the constant in front
-#: of a pure-Python nameprep is not the same on all of them. A ratchet that fires on somebody
-#: else's CPU is a ratchet that gets deleted.
-_MAX_IDNA_MULTIPLE = 30
+#: **100 rather than 30, because 30 was the guess and 35.1 was the measurement.** The reasoning
+#: behind 30 was right and its number was not: this does run on more than one architecture, and
+#: a shared runner reached 35.1x on the first CI run this repository ever had, on a tree nothing
+#: was wrong with. A ratchet that fires on somebody else's CPU is a ratchet that gets deleted,
+#: and this one had 2.8x of headroom over a machine it had never been measured on.
+#:
+#: 100 sits between the two numbers that matter rather than close to either: two and a half times
+#: below the 251 the defect actually produced, and three times above the worst clean measurement
+#: anything has reported. The regression it guards is not gradual. The ceiling is either applied
+#: before normalisation or after it, so the ratio is either about ten or about two hundred and
+#: fifty, and nothing in between is a state this code can be in.
+#:
+#: Raising it costs less than it looks, because the specific defect that produced 251x is now
+#: also asserted without a clock, by counting what reaches the codec rather than timing it. That
+#: assertion cannot flake and cannot be argued with; this one stays for what a count cannot see,
+#: which is the codec itself getting slower.
+_MAX_IDNA_MULTIPLE = 100
 
 #: How much more an 8 KiB URL may cost than a 1 KiB one: eight times the input, so at most this
 #: many times the work if the scan is linear, and about sixty-four times if it is quadratic.
@@ -139,15 +153,61 @@ def test_a_non_ascii_host_is_not_a_different_order_of_cost(policy: Policy) -> No
     The denominator is an ASCII URL of the same length, so every scan and check either side of
     ``_normalise`` divides out and what is left is the constant being bounded.
     """
+    # Every one of these takes the default number of batches. The numerators used to take
+    # three, which is fewer chances for `cost_ns` to catch a clean one, and a minimum estimated
+    # from three samples on a busy runner is the noisiest half of a ratio built to cancel noise.
     ascii_host = cost_corpus.cost_ns(policy.check_url, cost_corpus.scaled_to(8192))
-    permitted = cost_corpus.cost_ns(policy.check_url, cost_corpus.WORST_ACCEPTED, repeat=3)
-    hostile = cost_corpus.cost_ns(
-        policy.check_url, cost_corpus.HOSTILE, repeat=3, allow_refusal=True
-    )
+    permitted = cost_corpus.cost_ns(policy.check_url, cost_corpus.WORST_ACCEPTED)
+    hostile = cost_corpus.cost_ns(policy.check_url, cost_corpus.HOSTILE, allow_refusal=True)
     multiple = max(permitted, hostile) / ascii_host
     assert multiple < _MAX_IDNA_MULTIPLE, (
         f"the most work one URL can make check_url do cost {multiple:.1f}x an ASCII URL of the "
         f"same length (permitted {permitted / ascii_host:.1f}x, hostile "
         f"{hostile / ascii_host:.1f}x); the ratchet is {_MAX_IDNA_MULTIPLE}x. Something is "
         f"running the idna codec over more host than DNS can carry"
+    )
+
+
+def test_the_idna_codec_never_sees_more_host_than_dns_can_carry(policy: Policy) -> None:
+    """The 251x defect, counted rather than timed.
+
+    The ratio above is what catches the codec itself getting slower, and nothing countable can
+    do that job. This is the other half of the same guard, and it is the half that matters most,
+    because the regression that actually happened was not the codec changing. It was the host
+    ceiling sitting *after* normalisation instead of before it, and where a ceiling sits is a
+    fact about how many characters `_normalise` is handed. A fact needs no clock, no runner and
+    no tolerance, so this gates where a ratio can only ratchet.
+
+    Both directions, because either alone is half an assertion. A permitted host reaches the
+    codec and is bounded by what DNS can carry; a host built past every ceiling never reaches it
+    at all.
+    """
+    # Both privates are the subject here rather than a shortcut into one: the assertion is about
+    # where a ceiling sits relative to a function, and neither of them is public.
+    longest = _policy._LONGEST_HOSTNAME  # noqa: SLF001
+    real = _policy._normalise  # noqa: SLF001
+
+    with mock.patch.object(_policy, "_normalise", wraps=real) as normalise:
+        for url in cost_corpus.WORST_ACCEPTED:
+            policy.check_url(url)
+        permitted = [len(call.args[1]) for call in normalise.call_args_list]
+
+        normalise.reset_mock()
+        for url in cost_corpus.HOSTILE:
+            with contextlib.suppress(SSRFGuardError):
+                policy.check_url(url)
+        hostile = [len(call.args[1]) for call in normalise.call_args_list]
+
+    assert permitted, (
+        "no permitted host reached the idna codec, so the bound below is vacuous and this test "
+        "would pass with the ceiling deleted"
+    )
+    assert max(permitted) <= longest, (
+        f"the idna codec was handed {max(permitted)} characters of host, and DNS carries at most "
+        f"{longest}. Something normalises before it checks the length"
+    )
+    assert hostile == [], (
+        f"a host built past every ceiling reached the idna codec, at lengths "
+        f"{sorted(set(hostile))}. That is the 251x defect exactly: the ceiling is being applied "
+        f"after normalisation rather than before it"
     )
