@@ -98,8 +98,14 @@ def _open(
     """
     sock = socket.socket(address.family, socket.SOCK_STREAM)
     try:
+        # **`*option` unpacks a union of tuple shapes, which pyright cannot follow**: it joins
+        # the element types across positions and then reports every argument as wrong. mypy
+        # reads it correctly, and httpcore carries the same pattern in its own backends. The
+        # suppression is preferred to a length dispatch because unpacking is what keeps the
+        # value intact: a 5-tuple still raises TypeError here, where a dispatch on len would
+        # silently apply the first three and drop the rest.
         for option in socket_options or ():
-            sock.setsockopt(*option)
+            sock.setsockopt(*option)  # pyright: ignore[reportCallIssue, reportArgumentType]
         if timeout is not None:
             sock.settimeout(timeout)
         if source_address is not None:

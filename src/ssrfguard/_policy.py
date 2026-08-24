@@ -681,7 +681,11 @@ def _normalise(url: str, host: str) -> str:
         return host.lower()
     try:
         return host.encode("idna").decode("ascii").lower()
-    except (UnicodeError, ValueError) as bad:
+    # `UnicodeError` is a subclass of `ValueError`, so naming it here caught nothing extra and
+    # only read as though it did. `ValueError` is the one to keep: the codec raises
+    # `UnicodeError` in every path CPython takes today, and the broader name is what keeps a
+    # future codec raising a plain `ValueError` arriving as a refusal rather than a crash.
+    except ValueError as bad:
         raise BlockedURLError(url, f"host {host!r} is not a usable name: {bad}") from bad
 
 

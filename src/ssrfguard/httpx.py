@@ -961,9 +961,12 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
                 only_timeouts = False
                 continue
             try:
+                # The `pyright: ignore` is the one in `_connect._open`, for the same reason:
+                # `*option` unpacks a union of tuple shapes and pyright joins the element types
+                # across positions. mypy reads it correctly.
                 for option in socket_options or ():
                     raw = stream.extra(anyio.abc.SocketAttribute.raw_socket)  # noqa: S610
-                    raw.setsockopt(*option)
+                    raw.setsockopt(*option)  # pyright: ignore[reportCallIssue, reportArgumentType]
                 _verify_peer(stream, address)
             except BaseException:
                 await stream.aclose()
