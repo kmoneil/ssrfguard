@@ -46,6 +46,7 @@
           { "context": "fast (macos-latest)" },
           { "context": "gates" },
           { "context": "leaks" },
+          { "context": "mutation" },
           { "context": "rebind" },
           { "context": "zero-deps" }
         ],
