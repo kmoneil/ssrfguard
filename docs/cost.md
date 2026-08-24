@@ -83,16 +83,38 @@ counts calls and holds no clock at all.
 
 ## What is not bounded
 
-**DNS resolution time on the synchronous path.** `socket.getaddrinfo` has no timeout and
+**DNS resolution time, with the default resolver.** `socket.getaddrinfo` has no timeout and
 `socket.setdefaulttimeout` does not apply to it, so a hostile authoritative nameserver can stall
-a lookup for as long as it likes. `SECURITY.md` has this as out of scope: it holds up the caller
-that made it and nobody else, and supervising it is the caller's job.
+a lookup for as long as it likes. `SECURITY.md` has this as out of scope for the *default*: it
+holds up the caller that made it and nobody else, and supervising it is the caller's job.
+[`UdpResolver`](resolvers.md) bounds it and is one constructor argument away.
 
 On the async path it is bounded by `resolver_slots`, which is the difference between a limit and
 an outage.
 
-**Connection time** is bounded by `timeout * max_connection_attempts`, because `timeout` is per
-attempt. See [the attempt cap](policy.md#the-attempt-cap) for why the cap exists.
+**Connection time for one hop** is bounded by `timeout * max_connection_attempts`, because
+`timeout` is per attempt. See [the attempt cap](policy.md#the-attempt-cap) for why the cap
+exists.
+
+**Connection time for one request is that multiplied by the hops**, and it is the number worth
+knowing because it is the one a caller does not compute. A redirect chain is this package's own,
+counted by `max_redirects` rather than by the client, and every hop is a fresh name, a fresh
+resolution and a fresh connection that gets the whole per-hop budget again:
+
+```
+attempts per request  =  (max_redirects + 1) * max_connection_attempts
+                      =  (5 + 1) * 4
+                      =  24
+```
+
+**Measured rather than derived.** `tests/test_adapter_redirects.py` walks a chain whose every hop
+answers with dead addresses and one live one, counts the sockets opened, and holds all three
+clients to that product. It is a count rather than a duration, so it gates on any runner.
+
+Twenty-four times the timeout a caller asked for is a large number to arrive at by multiplying
+two small ones, which is the reason it is written here. It is a *bound* rather than a hole: both
+factors are configurable, and a caller who wants it tighter turns one of them down. At
+`max_redirects=1` it is eight.
 
 ## Memory, and what is held
 

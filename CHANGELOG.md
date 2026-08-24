@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- **`docs/cost.md` understated the connection budget by a factor of six.** It said connection
+  time is bounded by `timeout * max_connection_attempts`, which is the per-*hop* figure. A
+  redirect chain is this package's own, counted by `max_redirects` rather than by the client, and
+  every hop is a fresh name, a fresh resolution and a fresh connection that gets the whole
+  per-hop budget again. One request costs `(max_redirects + 1) * max_connection_attempts`, which
+  at the defaults is **24** times the timeout the caller asked for.
+
+  That is a bound rather than a hole: both factors are configurable and turning either down turns
+  the product down, and at `max_redirects=1` it is eight. What it was not is written down, or
+  checked, so a change to either default moved it silently while the document went on quoting
+  four.
+
+  Measured rather than derived, and now gated: `tests/test_adapter_redirects.py` walks a chain
+  whose hops answer with dead addresses and one live one, counts the sockets opened, and holds
+  all three clients to the product across four configurations. Raising the attempt cap by one
+  reds it.
+
+- **`docs/cost.md` still described DNS resolution as simply unbounded**, which stopped being the
+  whole truth when a resolver with a deadline shipped. It names the default now, the way
+  `SECURITY.md` does.
+
+
 ### Added
 
 - **The promise is written down: this guards the connection, and the fetch around it is not
