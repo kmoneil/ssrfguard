@@ -218,3 +218,72 @@ def test_the_link_search_can_actually_fail() -> None:
     assert slug("Reach: three answers, not two") == "reach-three-answers-not-two"
     assert slug("`allowed_networks` and TLS") == "allowed_networks-and-tls"
     assert slug("What it costs") != "what-it-cost"
+
+
+#: A path into the test suite, as the documentation writes one.
+CITED_PATH = re.compile(r"`((?:tests|scripts|examples)/[\w/.]+?\.(?:py|json))")
+
+#: A test function named in prose. Backticked, because that is how this repository writes one,
+#: and long enough that a sentence about "test coverage" is not mistaken for a citation.
+CITED_TEST = re.compile(r"`(?:[\w/.]+\.py::)?(test_[a-z0-9_]{12,})`")
+
+
+@pytest.mark.parametrize("source", MARKDOWN, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_every_file_the_docs_cite_is_there(source: Path) -> None:
+    """Documentation that points at a file which was renamed is documentation that lies.
+
+    Args:
+        source: The markdown file to read.
+    """
+    cited = sorted(set(CITED_PATH.findall(source.read_text(encoding="utf-8"))))
+    missing = [path for path in cited if not (REPO_ROOT / path).exists()]
+
+    assert not missing, f"{source.name} cites files that do not exist: {missing}"
+
+
+@pytest.mark.parametrize("source", MARKDOWN, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_every_test_the_docs_cite_is_there(source: Path) -> None:
+    """**A prevention claim naming a test that no longer exists is worse than no claim.**
+
+    `architecture.md` names sixteen tests and `threat-model.md` names more, each as the evidence
+    for a property this package promises. A reader is being told to go and look. Renaming a test
+    is ordinary, quiet, and turns every one of those into a dead reference, and nothing else here
+    would notice.
+
+    Args:
+        source: The markdown file to read.
+    """
+    cited = sorted(set(CITED_TEST.findall(source.read_text(encoding="utf-8"))))
+    defined = {
+        name
+        for path in (REPO_ROOT / "tests").glob("*.py")
+        for name in re.findall(r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.MULTILINE)
+    }
+    missing = [name for name in cited if name not in defined]
+
+    assert not missing, (
+        f"{source.name} cites tests that are not defined in tests/: {missing}. Either the test "
+        f"was renamed and the claim is now unevidenced, or the name in the prose is wrong"
+    )
+
+
+def test_the_citation_search_can_actually_fail() -> None:
+    """A check that has never caught anything is indistinguishable from one that cannot.
+
+    Both patterns above are permissive on purpose, so the interesting question is not whether
+    they match too much but whether they match at all. A regex that quietly stopped matching
+    would let every citation in the tree rot while reporting green.
+    """
+    assert CITED_PATH.findall("see `tests/test_rebinding.py` for it") == ["tests/test_rebinding.py"]
+    assert CITED_TEST.findall("`test_a_pooled_second_request_asks_nothing`") == [
+        "test_a_pooled_second_request_asks_nothing"
+    ]
+    assert CITED_TEST.findall("`tests/x.py::test_a_pooled_second_request_asks_nothing`") == [
+        "test_a_pooled_second_request_asks_nothing"
+    ]
+
+    architecture = (DOCS / "architecture.md").read_text(encoding="utf-8")
+    assert len(set(CITED_TEST.findall(architecture))) >= 5, (
+        "the guide that exists to name its evidence cites almost nothing, so either it changed "
+        "shape or this pattern stopped matching"
+    )

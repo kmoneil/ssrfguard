@@ -13,6 +13,7 @@ rather than by module.
 | [The address table](address-table.md)           | What is in it, how a wrapper is decoded, longest-prefix-wins, building your own, and every place it departs from IANA                                    |
 | [What it costs](cost.md)                        | The measured numbers, the shape that matters more than the numbers, and what is not bounded                                                              |
 | [Why this exists](architecture.md)              | The bug, the fix, where the seam is, the failures this prevents and the test that proves each one, and what this is not                                  |
+| [Threat model](threat-model.md)                 | What an attacker controls, what meets each capability, and the residual risk in detail: what is not defended, what is defended less than it looks, and where the tests would not notice |
 
 **[`examples/`](../examples/README.md) is the other half of the documentation**, and it is
 executed rather than described: nine runnable files, each of which works with **no arguments**, no
