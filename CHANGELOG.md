@@ -6,7 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- **An `observer`, so a decision survives the function that made it.** Every permit and every
+  refusal this package makes was discarded unless it raised, and the usual shape of calling code
+  flattens the refusal too: `except SSRFGuardError: log.warning("bad url")` is a control working
+  perfectly and telling nobody what it caught. A blocked SSRF attempt is an indicator of
+  compromise, and **the permits matter as much**: a name that resolved public yesterday and
+  private today is the whole subject of this package, and nothing in it could say so, because
+  yesterday's answer left no trace.
+
+  `Decision` is a frozen record carrying the stage, the outcome, the rule that refused, the
+  address, and the URL with any credentials replaced. It is a constructor argument on all three
+  clients and a keyword on `check_url`, `resolve` and `connect`. Four stages: `url`, `address`
+  (**one record per address**, not per name, because which of four was refused is the point),
+  `peer`, and `redirect`. [`docs/observing.md`](docs/observing.md) is the guide.
+
+  **Three rules make it safe rather than a new way to break a request.** An observer that raises
+  cannot fail one, because a sink with a bug in it would otherwise turn an allow into a deny and
+  report a logging error as a refused request; `KeyboardInterrupt` and `SystemExit` still travel,
+  because a process being torn down is not a sink misbehaving. An observer never sees
+  credentials, on permits as well as refusals and in every URL of a redirect chain, redacted
+  textually so it works on URLs no parser accepts. And nobody listening costs nothing: no record
+  is built when `observer` is `None`, gated by counting constructions rather than timing them.
+
+  **It is a callback rather than `logging`.** A library that picks a logger name, a level and a
+  format makes three decisions for a caller who made none of them, and an event that arrives as a
+  formatted string has to be parsed back into fields by whoever wants to alert on it. The guide
+  carries the four lines that hand it to `logging`.
+
 ### Changed
+
 
 - **The citation scanner can see an `async def` test.** `test_every_test_the_docs_cite_is_there`
   matched test definitions with `^def (test_\w+)`, so every asynchronous test read as undefined
