@@ -10,9 +10,9 @@
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
   "taken": "2026-08-24",
-  "surviving_mutants": 217,
-  "distinct_changes": 203,
-  "functions": 31,
+  "surviving_mutants": 140,
+  "distinct_changes": 140,
+  "functions": 29,
   "survivors": {
     "src/ssrfguard/_address.py::_embedded_v4": [
       "server = IPv4Address((packed >> 64) & 0xFFFFFFFF)  ->  server = IPv4Address((packed >> 65) & 0xFFFFFFFF)"
@@ -77,41 +77,6 @@
     "src/ssrfguard/httpx.py::AsyncSafeBackend.connect_unix_socket": [
       "raise BlockedURLError(path, _NO_UNIX_SOCKETS)  ->  raise BlockedURLError(None, _NO_UNIX_SOCKETS)"
     ],
-    "src/ssrfguard/httpx.py::AsyncSafeTransport.__init__": [
-      "http1: bool = True,  ->  http1: bool = False,",
-      "http1=http1,  ->  (line removed)",
-      "http1=http1,  ->  http1=None,",
-      "http2: bool = False,  ->  http2: bool = True,",
-      "http2=http2,  ->  (line removed)",
-      "http2=http2,  ->  http2=None,",
-      "keepalive_expiry=limits.keepalive_expiry,  ->  (line removed)",
-      "keepalive_expiry=limits.keepalive_expiry,  ->  keepalive_expiry=None,",
-      "limits=limits,  ->  (line removed)",
-      "local_address=local_address,  ->  (line removed)",
-      "local_address=local_address,  ->  local_address=None,",
-      "max_connections=limits.max_connections,  ->  (line removed)",
-      "max_connections=limits.max_connections,  ->  max_connections=None,",
-      "max_keepalive_connections=limits.max_keepalive_connections,  ->  (line removed)",
-      "max_keepalive_connections=limits.max_keepalive_connections,  ->  max_keepalive_connections=None,",
-      "raise BlockedURLError(uds, _NO_UNIX_SOCKETS)  ->  raise BlockedURLError(None, _NO_UNIX_SOCKETS)",
-      "raise BlockedURLError(uds, _NO_UNIX_SOCKETS)  ->  raise BlockedURLError(uds, None)",
-      "raise ProxyUnsupportedError(str(proxy))  ->  raise ProxyUnsupportedError(None)",
-      "raise ProxyUnsupportedError(str(proxy))  ->  raise ProxyUnsupportedError(str(None))",
-      "retries: int = 0,  ->  retries: int = 1,",
-      "retries=retries,  ->  (line removed)",
-      "retries=retries,  ->  retries=None,",
-      "socket_options=socket_options,  ->  socket_options=None,",
-      "socket_options=socket_options, ; )  ->  )",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=None, trust_env=trust_env)",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, )",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=None)",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, trust_env=trust_env)",
-      "trust_env: bool = True,  ->  trust_env: bool = False,",
-      "trust_env=trust_env,  ->  (line removed)",
-      "trust_env=trust_env,  ->  trust_env=None,",
-      "verify=ssl_context,  ->  (line removed)",
-      "verify=ssl_context,  ->  verify=None,"
-    ],
     "src/ssrfguard/httpx.py::Client.__init__": [
       "policy = _policy_from(policy, resolver, transport, SafeTransport)  ->  policy = _policy_from(policy, None, transport, SafeTransport)"
     ],
@@ -131,38 +96,6 @@
     ],
     "src/ssrfguard/httpx.py::SafeBackend.connect_unix_socket": [
       "raise BlockedURLError(path, _NO_UNIX_SOCKETS)  ->  raise BlockedURLError(None, _NO_UNIX_SOCKETS)"
-    ],
-    "src/ssrfguard/httpx.py::SafeTransport.__init__": [
-      "http1: bool = True,  ->  http1: bool = False,",
-      "http1=http1,  ->  (line removed)",
-      "http1=http1,  ->  http1=None,",
-      "http2: bool = False,  ->  http2: bool = True,",
-      "http2=http2,  ->  (line removed)",
-      "http2=http2,  ->  http2=None,",
-      "keepalive_expiry=limits.keepalive_expiry,  ->  (line removed)",
-      "keepalive_expiry=limits.keepalive_expiry,  ->  keepalive_expiry=None,",
-      "limits=limits,  ->  (line removed)",
-      "local_address=local_address,  ->  (line removed)",
-      "local_address=local_address,  ->  local_address=None,",
-      "max_connections=limits.max_connections,  ->  (line removed)",
-      "max_connections=limits.max_connections,  ->  max_connections=None,",
-      "max_keepalive_connections=limits.max_keepalive_connections,  ->  (line removed)",
-      "max_keepalive_connections=limits.max_keepalive_connections,  ->  max_keepalive_connections=None,",
-      "raise BlockedURLError(uds, _NO_UNIX_SOCKETS)  ->  raise BlockedURLError(None, _NO_UNIX_SOCKETS)",
-      "retries: int = 0,  ->  retries: int = 1,",
-      "retries=retries,  ->  (line removed)",
-      "retries=retries,  ->  retries=None,",
-      "socket_options=socket_options,  ->  socket_options=None,",
-      "socket_options=socket_options, ; )  ->  )",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=None, trust_env=trust_env)",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, )",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=None)",
-      "ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)  ->  ssl_context = httpx.create_ssl_context(verify=verify, trust_env=trust_env)",
-      "trust_env: bool = True,  ->  trust_env: bool = False,",
-      "trust_env=trust_env,  ->  (line removed)",
-      "trust_env=trust_env,  ->  trust_env=None,",
-      "verify=ssl_context,  ->  (line removed)",
-      "verify=ssl_context,  ->  verify=None,"
     ],
     "src/ssrfguard/httpx.py::_check_port": [
       "allowed = \", \".join(str(p) for p in sorted(policy.allowed_ports))  ->  allowed = \", \".join(str(None) for p in sorted(policy.allowed_ports))",

@@ -149,6 +149,26 @@ _NO_UNIX_SOCKETS = (
 #: the number is one a reader of httpx already recognises.
 _RESOLVER_SLOTS = 100
 
+#: What httpx bounds a pool at when the caller says nothing, restated because
+#: ``httpx.Limits()`` **is not that**. Its no-argument constructor yields
+#: ``max_connections=None, max_keepalive_connections=None``, an unbounded pool; the default httpx
+#: actually applies to ``HTTPTransport(limits=...)`` is 100 and 20, declared on the signature
+#: rather than on the class.
+#:
+#: Building the pinning pool from the former made a guarded transport **less** bounded than the
+#: unguarded one it replaces, which is the wrong direction for every argument this package makes.
+#: It also made ``_resolver_slots_for``'s "prefer the pool's own figure" branch unreachable by
+#: default, because the figure was always ``None``.
+#:
+#: Transcribed rather than imported: ``httpx._config.DEFAULT_LIMITS`` is private, and reading it
+#: from the signature at import time would put ``inspect`` on the import path of a package that
+#: measures what importing it costs. ``tests/test_adapter_construction.py`` pins these three
+#: numbers against httpx's own default, so a version that moves them fails a test here rather
+#: than changing what this package does without saying so.
+_HTTPX_DEFAULT_LIMITS = httpx.Limits(
+    max_connections=100, max_keepalive_connections=20, keepalive_expiry=5.0
+)
+
 
 def _origin_target(host: str, port: int) -> Target:
     """Record the origin httpcore is about to reach, in the form resolution wants.
@@ -458,7 +478,7 @@ class SafeTransport(httpx.HTTPTransport):
             raise ProxyUnsupportedError(str(proxy))
 
         self.policy = policy
-        limits = httpx.Limits() if limits is None else limits
+        limits = _HTTPX_DEFAULT_LIMITS if limits is None else limits
         # Built once and handed to both, rather than letting each build its own: `verify=<str>`
         # and `cert=` are deprecated in httpx and warn when they are resolved, so resolving
         # twice would warn twice about one call. Prefer `verify=<ssl.SSLContext>`.
@@ -1074,7 +1094,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             raise ProxyUnsupportedError(str(proxy))
 
         self.policy = policy
-        limits = httpx.Limits() if limits is None else limits
+        limits = _HTTPX_DEFAULT_LIMITS if limits is None else limits
         ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
         super().__init__(
             verify=ssl_context,
