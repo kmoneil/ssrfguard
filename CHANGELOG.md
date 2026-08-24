@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **`Policy(allowed_hosts=...)`: reaching only what you meant to.** The policy could narrow
+  schemes, ports, networks and userinfo, and there was no way to say "only `api.stripe.com` and
+  `*.githubusercontent.com`". The workaround was `allowed_networks`, which is the wrong control
+  three ways over: unstable, because the address behind an API is a CDN's; far too wide, because
+  allowing a CDN's ranges allows every other tenant on it; and a *widening* of the denylist, so a
+  mistake in it is a bypass rather than a refusal.
+
+  Empty by default, and empty means no name restriction, so no existing policy's behaviour moves.
+  A bare entry is exact and does not carry its subdomains; `*` is meaningful only as the whole of
+  the leftmost label and anything else is refused at construction; a literal address is not a
+  host pattern and is permitted only by being listed verbatim.
+
+  **Matching is on label boundaries and is never a suffix test**, which is the single line that
+  would turn this into a way in: `"evil-github.com".endswith("github.com")` is `True`.
+  `tests/test_policy_hosts.py` carries a corpus of hosts that nearly match a listed entry, and a
+  property test requiring anything permitted to be exactly a listed name or a proper subdomain of
+  a listed wildcard.
+
+  **This is the opposite direction from the one this package refuses, and the asymmetry is the
+  argument.** Denying by name is defeated by a trailing dot, a case change, an IDN homograph or a
+  `CNAME`, which is why the address table denies addresses and never names. Allowlisting inverts
+  every term: an attacker has to match the string rather than evade it, evasion means refusal,
+  and matching buys only the right to be resolved and then checked against the address table like
+  anything else. There is no permit to spoof into. The spellings that defeat a denylist are
+  folded on both the entry and the host, so `API.STRIPE.COM.` matches `api.stripe.com` and an
+  entry may be written in the script you read rather than in punycode.
+
+  A refusal names the host, the field, and the entry it nearly matched, because the first mistake
+  anybody makes is listing `example.com` and then fetching `api.example.com`.
+  [`docs/policy.md`](docs/policy.md) has the table.
+
+### Fixed
+
+- **A bad `allowed_hosts` entry is a `ValueError`, not a `BlockedURLError`.** Entries go through
+  the same normalisation a URL's host does, and that function reports failure as a *URL* refusal,
+  which is right where `check_url` calls it and wrong from a constructor: the message read
+  "'...' is not permitted", naming a URL that does not exist, to a caller who was configuring a
+  policy rather than fetching anything. Every other check in `__post_init__` raises `ValueError`.
+  Found by mutation testing, which noticed that nothing distinguished the argument carrying the
+  name in that message from `None`.
+
 ## 0.2.0 - 2026-08-24
 
 ### Added
