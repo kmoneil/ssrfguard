@@ -24,6 +24,7 @@ to the row below rather than reading the whole page.
 | `denied_networks`         | `DEFAULT_DENIED`                                     | The address table. See [The address table](address-table.md)                      |
 | `allowed_networks`        | `()`                                                 | Networks permitted even when the table denies them. **Explicit allow beats deny** |
 | `allowed_ports`           | `{80, 443}`                                          | Which ports a URL may name                                                        |
+| `allowed_hosts`           | `frozenset()`                                        | Which hosts a URL may name. Empty means no name restriction                       |
 | `allow_userinfo`          | `False`                                              | Whether credentials may ride in the authority                                     |
 | `on_partial_block`        | `"reject"`                                           | What to do when a name resolves both ways                                         |
 | `max_redirects`           | `5`                                                  | How many hops a chain may take                                                    |
@@ -69,6 +70,67 @@ breadth the caller asked for everything and is entitled to get it.
 **An entry does not carry across address families.** `10.0.0.0/8` does not permit
 `::ffff:10.0.0.1`, because the check compares versions and the mapped form is version 6. That
 direction over-denies, so it stands; if you want the mapped form, say so.
+
+## Reaching only what you meant to
+
+`allowed_networks` widens what a policy may reach. `allowed_hosts` narrows it, and is the
+strongest control here: a fetcher that is only ever meant to talk to two APIs can say so.
+
+```python
+Policy(allowed_hosts={"api.stripe.com", "*.githubusercontent.com"})
+```
+
+Empty by default, and empty means no name restriction, so adding the field is the only thing
+that changes anything.
+
+| Entry | Matches | Does not match |
+| --- | --- | --- |
+| `api.stripe.com` | `api.stripe.com`, and the absolute form `api.stripe.com.` | `x.api.stripe.com`, `notapi.stripe.com` |
+| `*.githubusercontent.com` | `raw.githubusercontent.com`, `a.b.githubusercontent.com` | `githubusercontent.com`, `evil-githubusercontent.com` |
+
+**A bare entry is exact and does not carry its subdomains.** A caller who wants both writes both.
+Guessing which was meant is how a widening ships by accident.
+
+**`*` is only meaningful as the whole of the leftmost label**, and anything else is refused at
+construction rather than quietly ignored:
+
+```python
+Policy(allowed_hosts={"api.*.stripe.com"})   # ValueError
+Policy(allowed_hosts={"*"})                  # ValueError: leave allowed_hosts empty instead
+```
+
+**A literal address is not a host pattern.** With `allowed_hosts` set, `https://93.184.216.34/`
+is refused unless that address is listed verbatim, and a wildcard never matches one. Otherwise
+the list would read as a restriction and not be one.
+
+### Why an allowlist by name is safe where a denylist by name would not be
+
+This package denies *addresses* and never names, on purpose: a name denial is a string match, and
+`metadata.google.internal.` with a trailing dot, `METADATA.GOOGLE.INTERNAL`, an IDN homograph or
+a `CNAME` that resolves there without carrying the name all defeat the string while none of them
+defeats the address check. See [the address table](address-table.md).
+
+**Allowlisting inverts every term of that.** An attacker has to *match* the string rather than
+evade it; evasion means refusal; and matching buys only the right to be resolved and then checked
+against the address table like any other host. There is no permit to spoof into. The spellings
+that defeat a denylist are folded here rather than exploited: case, the absolute form, and IDN
+are all normalised on both the entry and the host, so `API.STRIPE.COM.` matches
+`api.stripe.com` and an entry may be written in the script you read rather than in punycode.
+
+**Matching is on label boundaries and never a suffix test.** `"evil-github.com".endswith(
+"github.com")` is `True`, which is the single line that would turn this feature into a way in.
+`tests/test_policy_hosts.py` carries a corpus of hosts that nearly match a listed entry, and a
+property test asserting that anything permitted is either exactly a listed name or a proper
+subdomain of a listed wildcard.
+
+**A refusal names the entry it nearly matched**, because the first mistake anybody makes is
+listing `example.com` and then fetching `api.example.com`:
+
+```
+BlockedURLError: 'https://x.api.stripe.com/' is not permitted: host 'x.api.stripe.com' is not in
+allowed_hosts, which lists ['*.githubusercontent.com', 'api.stripe.com']; the nearest entry is
+'api.stripe.com'
+```
 
 ## Turning address filtering off
 
