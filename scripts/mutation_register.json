@@ -9,7 +9,7 @@
     "raw count and distinct_changes is what a register can tell apart.",
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
-  "taken": "2026-08-25",
+  "taken": "2026-08-24",
   "surviving_mutants": 156,
   "distinct_changes": 156,
   "functions": 39,
