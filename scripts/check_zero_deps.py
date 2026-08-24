@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Run inside the clean environment. Kept as a string rather than a file in `scripts/` so it
 # cannot accidentally be collected by the outer suite or import anything from this repository.
 PROBE = r"""
-import json, sys, sysconfig
+import importlib, json, pkgutil, sys, sysconfig
 
 result = {"clients_present": [], "leaked": [], "requires": [], "import_error": None}
 
@@ -57,9 +57,24 @@ for client in ("httpx", "requests", "urllib3", "httpcore"):
     else:
         result["clients_present"].append(client)
 
+# **Every shipped module, and enumerated rather than listed.** `import ssrfguard` reaches the
+# address table, the policy layer, resolution and the connection layer, and deliberately does not
+# reach a module a caller imports only when they want it. A third-party import inside one of
+# those would leave this lane green while breaking the claim it exists to gate. Enumerating means
+# the next module added is covered by having been added, rather than by somebody remembering to
+# name it here.
+#
+# The adapters are the only exclusion, and they are excluded because each is *meant* to import
+# its client. That is what the extras are for, and this environment has neither installed.
+ADAPTERS = {"ssrfguard.httpx", "ssrfguard.requests"}
+
 before = set(sys.modules)
 try:
     import ssrfguard  # noqa: F401
+
+    for found in pkgutil.iter_modules(ssrfguard.__path__, "ssrfguard."):
+        if found.name not in ADAPTERS:
+            importlib.import_module(found.name)
 except ImportError as exc:
     # **This is a finding, not a crash.** An adapter importing its client at module scope
     # fails exactly here and nowhere else, which is the whole reason this lane exists. Letting
@@ -188,8 +203,8 @@ def _report(result: dict[str, object]) -> bool:
     if import_error:
         print(f"importing ssrfguard failed in a clean interpreter: {import_error}", file=sys.stderr)
         print(
-            "an adapter is importing its client at module scope; "
-            "move the import inside the function or class body",
+            "a shipped module is importing a third-party package at module scope; "
+            "move the import inside the function or class body, the way the adapters do",
             file=sys.stderr,
         )
         return True
@@ -200,7 +215,8 @@ def _report(result: dict[str, object]) -> bool:
             f"importing ssrfguard loaded third-party modules: {', '.join(leaked)}", file=sys.stderr
         )
         print(
-            "an adapter is importing its client eagerly; move the import inside the body",
+            "a shipped module is importing a third-party package eagerly; "
+            "move the import inside the body",
             file=sys.stderr,
         )
         failed = True
