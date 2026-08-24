@@ -21,7 +21,9 @@ drop a credential header that is a credential by convention rather than by speci
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Iterator
+from unittest import mock
 
 import httpx
 import pytest
@@ -498,3 +500,109 @@ def test_a_cut_chain_never_reports_the_credentials_it_carried(
     for decision in sink.seen:
         assert "hunter2" not in (decision.url or "")
         assert all("hunter2" not in hop for hop in decision.chain)
+
+
+@pytest.mark.parametrize(("redirects", "attempts"), [(5, 4), (2, 4), (5, 2), (0, 4)])
+def test_one_request_costs_the_hops_times_the_attempts(
+    adapter: Adapter, first: RecordingServer, redirects: int, attempts: int
+) -> None:
+    """**The bound a caller does not compute**, held to on every surface.
+
+    `docs/cost.md` used to say connection time is bounded by `timeout * max_connection_attempts`,
+    which is the per-*hop* figure. A redirect chain is this package's own, and every hop is a
+    fresh name, a fresh resolution and a fresh connection that gets the whole per-hop budget
+    again, so one request costs the product. At the defaults that is twenty-four times the
+    timeout the caller asked for, which is a large number to arrive at by multiplying two small
+    ones.
+
+    It is a bound rather than a hole: both factors are configurable and turning either down
+    turns the product down. What it was not is written down, or checked, so a change to either
+    default moved it silently.
+
+    A count rather than a duration, so it gates on any runner. Every hop answers with dead
+    addresses and one live one last, which is the shape an attacker controls: the answers are
+    theirs, and only the final one has to work for the chain to continue.
+
+    **What this holds is the attempts factor and the product.** Raise `max_connection_attempts`
+    without raising the documented bound and it reds. The hops factor is held by
+    `test_a_chain_exactly_at_the_limit_is_followed` and
+    `test_a_chain_one_past_the_limit_is_refused`, which is why this does not try to hold both:
+    the chain here is stopped by a hop that reaches nothing, and a chain stopped that way cannot
+    also demonstrate the redirect cap binding.
+    """
+    owner, attribute = adapter.attempted
+    real = getattr(owner, attribute)
+    opened: list[object] = []
+
+    def counting(*args: object, **kwargs: object) -> object:
+        opened.append(args[:1])
+        return real(*args, **kwargs)
+
+    policy = policy_for(first, max_redirects=redirects, max_connection_attempts=attempts)
+    for hop in range(1, redirects + 3):
+        first.routes[f"/hop{hop}"] = (
+            302,
+            {"Location": f"http://hop{hop + 1}.test:{first.port}/hop{hop + 1}"},
+            b"",
+        )
+
+    # **Dead *ports* on 127.0.0.1, not dead addresses.** The first version used 127.0.0.2 and
+    # up, which Linux treats as local and refuses instantly. macOS does not: there is no
+    # interface for them, so the connect hangs rather than resetting, and the job was cancelled
+    # after twenty minutes. A closed port on an address that is definitely local resets on both.
+    #
+    # Every hop but the last connects on its final permitted answer, so each costs the whole
+    # per-hop budget. The last is offered more dead answers than the cap allows, which is what
+    # makes `max_connection_attempts` the binding constraint there rather than the answer count:
+    # with the cap raised by one this reds, and with an extra answer offered it does not.
+    # **Distinct ports, because `resolve` de-duplicates on the whole sockaddr.** Repeating one
+    # dead answer collapses to a single address and the hop costs one attempt instead of the
+    # cap, which is how the first version of this measured eleven and looked merely wrong rather
+    # than mis-built.
+    closed = _closed_ports(attempts + 2)
+
+    class Rows:
+        """A resolver answering with closed ports first and the live one last."""
+
+        def __call__(self, host: str, port: int, *_args: object) -> list[tuple]:
+            last = int(host.removeprefix("hop").removesuffix(".test"))
+            dead = attempts + 2 if last == redirects + 1 else attempts - 1
+            rows = [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", closed[index]))
+                for index in range(dead)
+            ]
+            if last <= redirects:
+                rows.append((socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)))
+            return rows
+
+    with (
+        mock.patch.object(owner, attribute, counting),
+        adapter.opened(policy, Rows()) as client,
+        pytest.raises(Exception),  # noqa: B017  # the last hop reaches nothing
+    ):
+        adapter.fetch(client, f"http://hop1.test:{first.port}/hop1")
+
+    expected = (redirects + 1) * attempts
+    assert len(opened) == expected, (
+        f"{adapter.name} opened {len(opened)} sockets for one request at max_redirects="
+        f"{redirects} and max_connection_attempts={attempts}; the bound documented in "
+        f"docs/cost.md is their product, {expected}"
+    )
+
+
+def _closed_ports(count: int) -> list[int]:
+    """Ports on loopback that nothing is listening on, all different.
+
+    Bound together and released together, so the numbers are real and distinct. A connection to
+    one resets immediately on every platform this package supports, which an unbound loopback
+    *address* does not: Linux treats all of 127/8 as local and macOS does not, so a connect to
+    127.0.0.2 there hangs rather than refusing.
+    """
+    probes = [socket.socket() for _ in range(count)]
+    try:
+        for probe in probes:
+            probe.bind(("127.0.0.1", 0))
+        return [int(probe.getsockname()[1]) for probe in probes]
+    finally:
+        for probe in probes:
+            probe.close()

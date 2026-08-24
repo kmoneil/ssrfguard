@@ -24,11 +24,13 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
+import anyio
 import anyio.from_thread
 import urllib3.util.connection
 from httpcore._backends.anyio import AnyIOBackend
 
 from ssrfguard import Observer, Policy
+from ssrfguard import _connect as ssrfguard_connect
 from ssrfguard.httpx import AsyncClient, Client
 from ssrfguard.requests import Session
 
@@ -57,6 +59,12 @@ class Adapter:
         name: What a parameter id shows.
         opened: Build a guarded client as a context manager.
         fetch: Make one request, following redirects.
+        attempted: The ``(owner, attribute)`` of the function this package calls to make **one**
+            connection attempt on this surface. Not the same as ``native``, which is the path the
+            seam replaces: this is the path the seam uses. The two synchronous clients share
+            `ssrfguard.connect`; the asynchronous one does not call it at all and reaches anyio
+            directly, which is why counting attempts needs a per-surface answer rather than one
+            patch.
         native: The ``(owner, attribute)`` of the client's *own* connect function, the one
             the seam replaces. A test makes it raise to prove nothing fell through to it. The
             owner is a module for two of these and a class for the third, which is only where
@@ -67,6 +75,7 @@ class Adapter:
     opened: Callable[..., Any]
     fetch: Callable[..., Any]
     native: tuple[Any, str]
+    attempted: tuple[Any, str]
 
 
 @contextmanager
@@ -204,6 +213,7 @@ ADAPTERS = (
         opened=_requests_client,
         fetch=lambda client, url, headers=None: client.get(url, headers=headers or {}),
         native=(urllib3.util.connection, "create_connection"),
+        attempted=(ssrfguard_connect, "_open"),
     ),
     Adapter(
         name="httpx",
@@ -212,6 +222,7 @@ ADAPTERS = (
             url, headers=headers or {}, follow_redirects=True
         ),
         native=(socket, "create_connection"),
+        attempted=(ssrfguard_connect, "_open"),
     ),
     Adapter(
         name="httpx-async",
@@ -223,6 +234,7 @@ ADAPTERS = (
         # would assert nothing. httpcore's own async backend is what a bypass would fall
         # through to.
         native=(AnyIOBackend, "connect_tcp"),
+        attempted=(anyio, "connect_tcp"),
     ),
 )
 
