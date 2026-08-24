@@ -262,15 +262,20 @@ LANES: tuple[Lane, ...] = (
     ),
     Lane(
         name="mutation",
-        checks="whether the suite would notice if the policy logic were subtly wrong",
-        needs="uv sync --frozen --all-extras",
-        reports_only=(
-            "`mutmut run` exits 0 whether or not mutants survive, and no register of "
-            "known-equivalent survivors is committed, so there is nothing for a machine to "
-            "diff a run against. `mutmut results` is printed so a human can do the diff until "
-            "there is"
+        checks=(
+            "whether the suite would notice if the library were subtly wrong, against the "
+            "register of survivors it already does not notice. A survivor outside that "
+            "register fails the lane; one that has been killed since is reported and nothing "
+            "else, because two runs of an unchanged tree disagreed by one mutant and a gate "
+            "on an exact count would flake"
         ),
-        command=("mutmut", "run"),
+        needs=(
+            "uv sync --frozen --all-extras. Writes `mutants/`, `.mutmut-cache` and a generated "
+            "`setup.cfg`, all gitignored. `scripts/check_mutants.py --write <date>` retakes the "
+            "register, and the diff it produces is the thing to read: every line added is "
+            "something the suite stopped noticing"
+        ),
+        command=("python", "scripts/check_mutants.py", "--run"),
     ),
 )
 
