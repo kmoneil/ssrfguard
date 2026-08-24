@@ -51,9 +51,13 @@ import ssrfguard.httpx as ssrfguard_httpx
 from ssrfguard import Address, BlockedAddressError, BlockedURLError, Policy, SSRFGuardError, connect
 from ssrfguard.httpx import AsyncSafeBackend, SafeBackend, SafeTransport
 from ssrfguard.requests import SafeAdapter
+from ssrfguard.resolvers import UdpResolver
 
 from .adapters_under_test import ADAPTER_IDS, ADAPTERS, Adapter, Trust
 from .loopback_http import RecordingServer
+from .scripted_dns import TYPE_AAAA as DNS_TYPE_AAAA
+from .scripted_dns import ScriptedDNS, question_of
+from .scripted_dns import answer as dns_answer
 from .stub_resolver import Resolver
 
 pytestmark = [pytest.mark.httpx_adapter, pytest.mark.requests_adapter]
@@ -684,3 +688,43 @@ def test_socket_options_land_before_connect_on_one_client_and_after_on_the_other
         "socket_options are applied before connect on Client and after connect on AsyncClient; "
         f"this run saw {seen}. If that changed, the module docstring changed with it."
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# The shipped resolver, on every surface
+# ---------------------------------------------------------------------------------------------
+
+
+def test_every_client_accepts_the_resolver_that_has_a_deadline(
+    adapter: Adapter, server: RecordingServer
+) -> None:
+    """`UdpResolver` is a drop-in on all three surfaces, against a real nameserver on loopback.
+
+    Every other row here drives resolution with `stub_resolver.Resolver`, a Python callable. This
+    one puts a real DNS exchange in the path on each client, because "no adapter changes were
+    needed" is a claim about the adapters and belongs in the file that holds them to one
+    standard. It is the asynchronous surface that this most needs to cover: it does not call a
+    resolver the way the other two do, it offloads it to a worker thread.
+    """
+
+    def loopback_only(query: bytes) -> bytes:
+        _name, qtype, _past = question_of(query)
+        if qtype == DNS_TYPE_AAAA:
+            return dns_answer(query)  # NOERROR with no records: this name has no IPv6
+        return dns_answer(query, addresses=["127.0.0.1"])
+
+    with ScriptedDNS(loopback_only) as nameserver:
+        resolver = UdpResolver(
+            nameservers=(nameserver.host,),
+            nameserver_port=nameserver.port,
+            timeout=5.0,
+            attempt_timeout=1.0,
+            attempts=1,
+        )
+        with adapter.opened(policy_for(server.port), resolver) as client:
+            response = adapter.fetch(client, f"http://udp.test:{server.port}/asked")
+        asked = nameserver.query_count
+
+    assert response.status_code == 200
+    assert [r.path for r in server.received] == ["/asked"]
+    assert asked > 0, "the shipped resolver was not the one that answered"

@@ -10,9 +10,9 @@
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
   "taken": "2026-08-24",
-  "surviving_mutants": 140,
-  "distinct_changes": 140,
-  "functions": 29,
+  "surviving_mutants": 161,
+  "distinct_changes": 161,
+  "functions": 40,
   "survivors": {
     "src/ssrfguard/_address.py::_embedded_v4": [
       "server = IPv4Address((packed >> 64) & 0xFFFFFFFF)  ->  server = IPv4Address((packed >> 65) & 0xFFFFFFFF)"
@@ -211,6 +211,49 @@
       "scheme=\"http\",  ->  scheme=\"HTTP\",",
       "scheme=\"https\",  ->  scheme=\"HTTPS\",",
       "tunnel_host=self._tunnel_host,  ->  tunnel_host=None,"
+    ],
+    "src/ssrfguard/resolvers.py::_check_question": [
+      "raise _MalformedError(\"a question runs past the end of the message\")  ->  raise _MalformedError(\"XXa question runs past the end of the messageXX\")",
+      "rtype, rclass = struct.unpack_from(\"!HH\", message, offset)  ->  rtype, rclass = struct.unpack_from(\"!hh\", message, offset)"
+    ],
+    "src/ssrfguard/resolvers.py::_decode_name": [
+      "raise _MalformedError(\"a label runs past the end of the message\")  ->  raise _MalformedError(\"XXa label runs past the end of the messageXX\")",
+      "raise _MalformedError(\"a name runs past the end of the message\")  ->  raise _MalformedError(\"XXa name runs past the end of the messageXX\")"
+    ],
+    "src/ssrfguard/resolvers.py::_encode_name": [
+      "encoded = label.encode(\"ascii\")  ->  encoded = label.encode(\"ASCII\")",
+      "raise ValueError(\"cannot resolve the root or an empty name\")  ->  raise ValueError(\"XXcannot resolve the root or an empty nameXX\")"
+    ],
+    "src/ssrfguard/resolvers.py::_follow_pointer": [
+      "raise _MalformedError(\"a compression pointer points outside the message\")  ->  raise _MalformedError(\"XXa compression pointer points outside the messageXX\")",
+      "raise _MalformedError(\"a compression pointer runs past the end of the message\")  ->  raise _MalformedError(\"XXa compression pointer runs past the end of the messageXX\")"
+    ],
+    "src/ssrfguard/resolvers.py::_label_text": [
+      "return raw.decode(\"ascii\")  ->  return raw.decode(\"ASCII\")"
+    ],
+    "src/ssrfguard/resolvers.py::_literal": [
+      "return ipaddress.ip_address(host.strip(\"[]\"))  ->  return ipaddress.ip_address(host.strip(\"XX[]XX\"))"
+    ],
+    "src/ssrfguard/resolvers.py::_parse": [
+      "raise _MalformedError(\"a message is shorter than a DNS header\")  ->  raise _MalformedError(\"XXa message is shorter than a DNS headerXX\")",
+      "raise _WrongQuestionError(\"a query arrived where a response was expected\")  ->  raise _WrongQuestionError(\"XXa query arrived where a response was expectedXX\")",
+      "reply_id, flags, qdcount, ancount = _HEADER.unpack_from(message, 0)[:4]  ->  reply_id, flags, qdcount, ancount = _HEADER.unpack_from(message, )[:4]",
+      "return _Answer(records=(), truncated=False)  ->  return _Answer(records=(), truncated=None)"
+    ],
+    "src/ssrfguard/resolvers.py::_read_record": [
+      "raise _MalformedError(\"a record header runs past the end of the message\")  ->  raise _MalformedError(\"XXa record header runs past the end of the messageXX\")",
+      "raise _MalformedError(\"a record's data runs past the end of the message\")  ->  raise _MalformedError(\"XXa record's data runs past the end of the messageXX\")"
+    ],
+    "src/ssrfguard/resolvers.py::_recv_exactly": [
+      "raise _MalformedError(\"the server closed the connection mid-reply\")  ->  raise _MalformedError(\"XXthe server closed the connection mid-replyXX\")"
+    ],
+    "src/ssrfguard/resolvers.py::_time_left": [
+      "if remaining <= 0:  ->  if remaining < 0:"
+    ],
+    "src/ssrfguard/resolvers.py::nameservers_from_resolv_conf": [
+      "for line in path.read_text(encoding=\"utf-8\", errors=\"replace\").splitlines():  ->  for line in path.read_text(encoding=\"UTF-8\", errors=\"replace\").splitlines():",
+      "for line in path.read_text(encoding=\"utf-8\", errors=\"replace\").splitlines():  ->  for line in path.read_text(encoding=None, errors=\"replace\").splitlines():",
+      "for line in path.read_text(encoding=\"utf-8\", errors=\"replace\").splitlines():  ->  for line in path.read_text(errors=\"replace\").splitlines():"
     ]
   }
 }
