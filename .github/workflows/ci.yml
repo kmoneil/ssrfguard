@@ -113,6 +113,15 @@ jobs:
           enable-cache: true
       - run: uv python install
       - run: uv sync --frozen --all-extras
+      # **macOS assigns only 127.0.0.1 to `lo0`**, where Linux routes the whole of 127.0.0.0/8.
+      # `tests/test_rebinding.py` needs a *second* permitted address to move a DNS record to,
+      # so that a connection landing on the wrong one is visible rather than inferred, and
+      # without this the two rows that separate pinning from re-checking fail to bind with
+      # `Errno 49`. Aliased rather than skipped, for the reason this file's header gives about
+      # `rebind`: these are the rows that prove the central claim, and a matrix that proves it
+      # on one platform while skipping it on the other reports a coverage it does not have.
+      - if: runner.os == 'macOS'
+        run: sudo ifconfig lo0 alias 127.0.0.2 up
       - run: uv run --frozen python scripts/lanes.py fast
 
   # ---------------------------------------------------------------------------
