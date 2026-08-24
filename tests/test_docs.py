@@ -27,6 +27,12 @@ import pytest
 
 from ssrfguard import DEFAULT_DENIED, REGISTRY_SNAPSHOT, Reach
 
+#: Reads the repository rather than the library. `mutmut` copies `src`, `tests` and two
+#: files into `mutants/` and runs the suite from there, where the rest of the tree does
+#: not exist, so this cannot run: it reads `docs/` and the root markdown. It could not kill a
+#: mutant in `src/ssrfguard` either way.
+pytestmark = pytest.mark.repository
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
 

@@ -20,6 +20,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+#: Reads the repository rather than the library. `mutmut` copies `src`, `tests` and two
+#: files into `mutants/` and runs the suite from there, where the rest of the tree does
+#: not exist, so this cannot run: it reads every committed file. It could not kill a
+#: mutant in `src/ssrfguard` either way.
+pytestmark = pytest.mark.repository
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: U+2014 EM DASH, spelled as an escape. Written literally, this line would make the file an

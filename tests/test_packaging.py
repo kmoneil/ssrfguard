@@ -11,6 +11,12 @@ import pytest
 
 import ssrfguard
 
+#: Reads the repository rather than the library. `mutmut` copies `src`, `tests` and two
+#: files into `mutants/` and runs the suite from there, where the rest of the tree does
+#: not exist, so this cannot run: it imports `lanes` from `scripts/`. It could not kill a
+#: mutant in `src/ssrfguard` either way.
+pytestmark = pytest.mark.repository
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
