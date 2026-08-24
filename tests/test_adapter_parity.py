@@ -865,3 +865,28 @@ def test_every_client_reports_the_same_stages_over_tls(
     assert {d.url for d in sink.seen if d.stage == "url"} >= {
         f"https://right.test:{tls_server.port}/tls"
     }
+
+
+def test_every_client_refuses_a_host_outside_the_list(
+    adapter: Adapter, server: RecordingServer
+) -> None:
+    """`allowed_hosts` is decided in `check_url`, and every surface calls it at its own seam.
+
+    The refusal has to arrive as a policy error rather than as whichever error that client
+    raises when a request fails, because a caller distinguishing "I did not allow this" from
+    "the network is down" is the difference between a configuration fix and an incident.
+    """
+    resolver = Resolver(**{"listed.test": "127.0.0.1", "unlisted.test": "127.0.0.1"})
+    policy = policy_for(server.port, allowed_hosts=frozenset({"listed.test"}))
+
+    with adapter.opened(policy, resolver) as client:
+        response = adapter.fetch(client, f"http://listed.test:{server.port}/allowed")
+        assert response.status_code == 200
+
+        with pytest.raises(BlockedURLError) as refusal:
+            adapter.fetch(client, f"http://unlisted.test:{server.port}/never")
+
+    assert "allowed_hosts" in refusal.value.reason
+    assert [request.path for request in server.received] == ["/allowed"], (
+        f"{adapter.name} reached the network for a host outside the list"
+    )

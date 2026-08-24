@@ -256,6 +256,7 @@ class Policy:
     denied_networks: AddressTable = DEFAULT_DENIED
     allowed_networks: tuple[IPNetwork, ...] = field(default=())
     allowed_ports: frozenset[int] = frozenset({80, 443})
+    allowed_hosts: frozenset[str] = frozenset()
     allow_userinfo: bool = False
     on_partial_block: PartialBlock = "reject"
     max_redirects: int = 5
@@ -278,6 +279,7 @@ class Policy:
         )
         object.__setattr__(self, "allowed_networks", _as_networks(self.allowed_networks))
         object.__setattr__(self, "allowed_ports", frozenset(self.allowed_ports))
+        object.__setattr__(self, "allowed_hosts", _as_host_patterns(self.allowed_hosts))
         object.__setattr__(
             self, "sensitive_headers", frozenset(h.lower() for h in self.sensitive_headers)
         )
@@ -467,6 +469,8 @@ class Policy:
         self._check_userinfo(url, split)
         host, as_written, address = self._check_host(url, split)
         port = self._check_port(url, split, scheme)
+        if self.allowed_hosts:
+            self._check_host_is_listed(url, host, literal=address is not None)
 
         if address is not None:
             try:
@@ -641,6 +645,30 @@ class Policy:
             raise BlockedURLError(url, f"host {host!r} is not a well-formed hostname")
         return host, raw, None
 
+    def _check_host_is_listed(self, url: str, host: str, *, literal: bool) -> None:
+        """Refuse a host the caller did not list, when they listed any.
+
+        Only consulted when ``allowed_hosts`` is non-empty, so a policy that names no host is
+        unaffected and pays nothing.
+
+        Args:
+            url: The URL as given, for the message.
+            host: The normalised host.
+            literal: Whether the host is an IP literal rather than a name.
+
+        Raises:
+            BlockedURLError: If the host matches no pattern.
+        """
+        if _host_is_allowed(host, self.allowed_hosts, literal=literal):
+            return
+        nearly = _nearest_pattern(host, self.allowed_hosts)
+        hint = f"; the nearest entry is {nearly!r}" if nearly else ""
+        raise BlockedURLError(
+            url,
+            f"host {host!r} is not in allowed_hosts, which lists "
+            f"{sorted(self.allowed_hosts)}{hint}",
+        )
+
     def _check_port(self, url: str, split: SplitResult, scheme: str) -> int:
         """Check the port against the policy.
 
@@ -794,3 +822,127 @@ def _literal_address(host: str) -> IPAddress | None:
         return ip_address(host)
     except ValueError:
         return None
+
+
+def _as_host_patterns(patterns: Iterable[str]) -> frozenset[str]:
+    """Normalise host patterns the way a host itself is normalised.
+
+    An entry and a URL's host have to be comparable, and a URL's host has already been through
+    :func:`_normalise` by the time anything matches it: lowercased, and IDN-encoded to A-labels.
+    So an entry gets the same treatment, which is what lets a caller write ``allowed_hosts` in
+    the script they can read rather than in punycode.
+
+    **A trailing dot is folded here and again on the host.** ``example.com.`` is the absolute
+    form of the same name and resolves to the same place, and ``_HOSTNAME`` deliberately permits
+    it, so a matcher that did not fold it would refuse a URL that is not merely legal but
+    identical. That is a wrong deny rather than a bypass, which is the direction an allowlist
+    fails in, and it is still wrong.
+
+    Args:
+        patterns: What the caller wrote.
+
+    Returns:
+        The normalised patterns.
+
+    Raises:
+        ValueError: If a pattern cannot mean anything: an empty entry, a bare ``*``, or a ``*``
+            anywhere but the leftmost label. Refused at construction rather than silently
+            ignored, because a pattern nobody can read is a pattern nobody can review.
+    """
+    out: set[str] = set()
+    for pattern in patterns:
+        entry = pattern.strip().rstrip(".")
+        if not entry:
+            raise ValueError(f"allowed_hosts contains {pattern!r}, which names no host")
+        head, _, rest = entry.partition(".")
+        if "*" in rest or ("*" in head and head != "*"):
+            raise ValueError(
+                f"allowed_hosts contains {pattern!r}; '*' is only meaningful as the whole of "
+                f"the leftmost label, as in '*.example.com'"
+            )
+        if head == "*" and not rest:
+            raise ValueError(
+                f"allowed_hosts contains {pattern!r}, which would permit every host; leave "
+                f"allowed_hosts empty instead, which is what 'no name restriction' means"
+            )
+        # **The `*` is kept away from the codec deliberately, and not because it would be
+        # refused.** Measured: `"*.\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444"
+        # .encode("idna")` succeeds and passes the `*` through, so today both spellings of this
+        # line agree. That tolerance is incidental rather than promised: `*` is not a hostname
+        # character, and a codec that tightened would take a working configuration with it.
+        try:
+            out.add(f"*.{_normalise(pattern, rest)}" if head == "*" else _normalise(pattern, entry))
+        except BlockedURLError as unusable:
+            # **A constructor raises `ValueError`, like every other check in `__post_init__`.**
+            # `_normalise` refuses a name that could not resolve and says so as a *URL* refusal,
+            # which is right where it is called from `check_url` and wrong here: there is no URL,
+            # and a caller configuring a policy is not being told a request was blocked.
+            raise ValueError(
+                f"allowed_hosts contains {pattern!r}, which is not a usable name: {unusable.reason}"
+            ) from unusable
+    return frozenset(out)
+
+
+def _host_is_allowed(host: str, patterns: frozenset[str], *, literal: bool) -> bool:
+    """Whether a normalised host matches any of the patterns.
+
+    **The whole of this card is this function not using ``endswith``.**
+    ``"evil-github.com".endswith("github.com")`` is ``True``, and a suffix test is how an
+    allowlist becomes a way in rather than a way to keep things out. Matching happens on label
+    boundaries: a wildcard entry matches a host whose remainder, after removing the matched
+    suffix, ends in a dot.
+
+    Args:
+        host: The host, already normalised by :func:`_normalise`.
+        patterns: The policy's patterns, already normalised by :func:`_as_host_patterns`.
+        literal: Whether the host is an IP literal. **A wildcard never matches one.** An entry
+            is a name pattern, and letting ``*.0.1`` reach ``127.0.0.1`` would mean the caller
+            wrote something about names and got something about addresses. A literal is
+            permitted only by being listed exactly, which is also the only way to write one that
+            a reader can check.
+
+    Returns:
+        Whether the host is permitted by name.
+    """
+    name = host.rstrip(".")
+    for pattern in patterns:
+        if literal:
+            if name == pattern:
+                return True
+        elif pattern.startswith("*."):
+            # Keeps the leading dot, so the label boundary is part of the comparison.
+            suffix = pattern.removeprefix("*")
+            if name.endswith(suffix) and len(name) > len(suffix):
+                return True
+        elif name == pattern:
+            return True
+    return False
+
+
+def _nearest_pattern(host: str, patterns: frozenset[str]) -> str | None:
+    """The listed entry a refused host most nearly matched, if any.
+
+    Written for one mistake in particular, which is the one a caller makes first: listing
+    ``example.com`` and then fetching ``api.example.com``. A bare entry is exact, deliberately,
+    so that refusal is correct and completely baffling without a hint about *which* entry was
+    close. `ssrfguard.errors` argues why a refusal a user cannot act on gets configured around.
+
+    Args:
+        host: The normalised host that was refused.
+        patterns: The policy's patterns.
+
+    There are three near misses and each is somebody's first mistake: the host is below a listed
+    entry, **the host is a wildcard entry's own base**, or the entry is below the host. The
+    second is the one this originally missed: listing ``*.example.com`` and then fetching
+    ``example.com`` is refused correctly and is baffling without being told which entry was
+    close.
+
+    Returns:
+        The nearest entry, or ``None`` when nothing is near.
+    """
+    name = host.rstrip(".")
+    for pattern in sorted(patterns):
+        bare = pattern.removeprefix("*.")
+        if name == bare or name.endswith(f".{bare}") or bare.endswith(f".{name}"):
+            return pattern
+    return None
