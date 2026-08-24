@@ -22,6 +22,28 @@ later.
 against loopback, a local resolver, or the fixtures in this repository's own test suite. There
 is no need to point this library at anybody else's network to show it is wrong.
 
+## What this package promises
+
+**It guards the connection.** Everything from the URL inwards to the socket landing on a
+validated address is this package's, and the fetch around it is not. That sentence decides more
+than it looks like it does, so it is written here rather than left to be inferred from what
+happens to be implemented:
+
+| Ours | Not ours |
+| ---- | -------- |
+| The URL, the name, every address it resolves to, and the peer once the socket is up | What a permitted host sends back |
+| Every gap between the address validated and the address connected to | Whether the caller reads it safely |
+| Where a redirect chain is allowed to go | What the response means |
+
+The second column is not a list of things that do not matter. It is a list of things a different
+tool does, and a package that took them on would be two half-finished tools rather than one
+finished one. **The alternative reading, "we safely fetch an untrusted URL", was considered and
+rejected**: it has no edge, because everything a fetch touches becomes in scope, and the first
+thing to suffer is the claim on the front of this README that is actually worth making.
+
+`tests/test_scope.py` holds this to it, because a boundary nothing checks is a boundary that
+moves one convenient argument at a time.
+
 ## What is in scope
 
 Everything under `src/ssrfguard/`. Concretely, the classes of bug this project considers its
