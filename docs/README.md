@@ -12,6 +12,7 @@ rather than by module.
 | [Using the pieces directly](building-blocks.md) | `check_url` / `resolve` / `connect` for a protocol this package ships no client for, including the correct TLS wrap                                      |
 | [The address table](address-table.md)           | What is in it, how a wrapper is decoded, longest-prefix-wins, building your own, and every place it departs from IANA                                    |
 | [Resolvers](resolvers.md)                       | `getaddrinfo` has no timeout; a resolver that does, what it does not know in exchange, and why half an answer is refused |
+| [Watching what it decides](observing.md)        | Reporting every permit and refusal to an observer, the four stages, and why a broken sink cannot fail a request |
 | [What it costs](cost.md)                        | The measured numbers, the shape that matters more than the numbers, and what is not bounded                                                              |
 | [Why this exists](architecture.md)              | The bug, the fix, where the seam is, the failures this prevents and the test that proves each one, and what this is not                                  |
 | [Threat model](threat-model.md)                 | What an attacker controls, what meets each capability, and the residual risk in detail: what is not defended, what is defended less than it looks, and where the tests would not notice |
