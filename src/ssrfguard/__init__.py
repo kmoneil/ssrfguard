@@ -17,6 +17,12 @@ what one is assembled from::
     Traceback (most recent call last):
     ssrfguard.errors.BlockedURLError: ...
 
+``socket.getaddrinfo`` is the default resolver and takes no timeout, so a hostile authoritative
+server can stall a lookup for as long as the platform allows. :mod:`ssrfguard.resolvers` ships
+one that does take a deadline, passed as ``resolver=`` to any client. It is opt-in, because the
+platform's resolver knows ``/etc/hosts``, ``nsswitch.conf`` and search domains, and that one does
+not.
+
 **A policy check is necessary and not sufficient.** ``check_url`` returns a
 :class:`~ssrfguard.Target`, not a URL, because handing back something an HTTP client would
 accept is the shape of every advisory this package exists to answer. The guard is not what

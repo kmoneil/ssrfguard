@@ -26,6 +26,7 @@ from collections.abc import Iterator
 import pytest
 
 from ssrfguard import BlockedAddressError, Policy, connect, resolve
+from ssrfguard.resolvers import UdpResolver
 
 from .rebind_dns import FlippingDNS, Zone, resolver_using
 
@@ -412,3 +413,73 @@ def test_a_nameserver_that_flips_on_every_query_cannot_move_the_connection(
     finally:
         pinned.close()
         moved.close()
+
+
+# ---------------------------------------------------------------------------------------------
+# The same claim, with the resolver this package ships rather than the one this file built
+# ---------------------------------------------------------------------------------------------
+
+
+def test_the_pin_holds_when_the_lookup_is_ours_rather_than_the_platforms(
+    dns: FlippingDNS, listener: Listener
+) -> None:
+    """`UdpResolver` speaks to the flipping nameserver directly, and nothing moves.
+
+    Every test above drives resolution through `resolver_using`, a `getaddrinfo`-shaped callable
+    this file wrote for the purpose. `ssrfguard.resolvers.UdpResolver` is a resolver the package
+    ships, with its own wire parser and its own socket, so the headline claim has to be made
+    again against it: a different lookup is a different place for a second lookup to hide.
+
+    It is also the claim this resolver exists to keep while adding a deadline, which is the one
+    thing `getaddrinfo` could never be given.
+    """
+    host, port = dns.address
+    policy = policy_for(listener.port)
+    dns.set("rebind.test", a=["127.0.0.1"])
+    resolver = UdpResolver(
+        nameservers=(host,),
+        nameserver_port=port,
+        timeout=5.0,
+        attempt_timeout=1.0,
+        attempts=1,
+    )
+
+    target = policy.check_url(f"http://rebind.test:{listener.port}/")
+    addresses = resolve(target, policy=policy, resolver=resolver)
+    assert [str(a.ip) for a in addresses] == ["127.0.0.1"]
+
+    queries_before = dns.query_count
+    dns.set("rebind.test", a=[METADATA])  # the attacker moves the record, right here
+
+    with connect(addresses, policy=policy, timeout=5) as sock:
+        assert sock.getpeername()[0] == "127.0.0.1", "the connection followed the moved record"
+
+    assert dns.query_count == queries_before, (
+        f"the name was looked up again after validation: {dns.queries[queries_before:]}"
+    )
+
+
+def test_this_resolver_would_see_the_move_if_anything_asked_it_to(dns: FlippingDNS) -> None:
+    """The counterpart every pinning assertion needs: proof the fixture can still move.
+
+    `test_the_pin_holds_...` asserts a second lookup did not happen. That assertion is only
+    worth something if a second lookup *would* have returned the moved record, so this asks
+    for one explicitly and requires the metadata address back.
+    """
+    host, port = dns.address
+    dns.set("rebind.test", a=["127.0.0.1"])
+    resolver = UdpResolver(
+        nameservers=(host,),
+        nameserver_port=port,
+        timeout=5.0,
+        attempt_timeout=1.0,
+        attempts=1,
+        families=(socket.AF_INET,),
+    )
+    assert [row[4][0] for row in resolver("rebind.test", 80)] == ["127.0.0.1"]
+
+    dns.set("rebind.test", a=[METADATA])
+    reresolved = [row[4][0] for row in resolver("rebind.test", 80)]
+    assert reresolved == [METADATA], (
+        "the fixture can no longer demonstrate a rebind, so the pinning test proves nothing"
+    )
