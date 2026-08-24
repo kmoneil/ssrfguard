@@ -66,6 +66,17 @@ METADATA = "169.254.169.254"
 #: at all is.
 TLS_REFUSED = (requests.exceptions.SSLError, httpx.ConnectError)
 
+#: A real `IPPROTO_TCP` option to plant and then watch for. **Which one does not matter**; that
+#: the platform has it does. The keepalive idle timer is the same timer everywhere and is spelled
+#: `TCP_KEEPIDLE` on Linux and `TCP_KEEPALIVE` on macOS, so asking `socket` which name it carries
+#: beats naming one and treating it as universal. Naming one is what put this row red on every
+#: macOS runner with `AttributeError`, on a test about neither keepalives nor platforms.
+KEEPALIVE_IDLE: int = next(
+    value
+    for name in ("TCP_KEEPIDLE", "TCP_KEEPALIVE")
+    if (value := getattr(socket, name, None)) is not None
+)
+
 
 @pytest.fixture(params=ADAPTERS, ids=ADAPTER_IDS)
 def adapter(request: pytest.FixtureRequest) -> Adapter:
@@ -636,7 +647,7 @@ def test_socket_options_land_before_connect_on_one_client_and_after_on_the_other
 
     The existing tests assert only that the option *lands*. That is why this was invisible.
     """
-    option = (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 42)
+    option = (socket.IPPROTO_TCP, KEEPALIVE_IDLE, 42)
     policy = policy_for(server.port)
     resolver = Resolver(**{"pinned.test": "127.0.0.1"})
     url = f"http://pinned.test:{server.port}/"
