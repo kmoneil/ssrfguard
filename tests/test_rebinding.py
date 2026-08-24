@@ -25,7 +25,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from ssrfguard import BlockedAddressError, Policy, connect, resolve
+from ssrfguard import BlockedAddressError, Decision, Policy, RebindingWatch, connect, resolve
 from ssrfguard.resolvers import UdpResolver
 
 from .rebind_dns import FlippingDNS, Zone, resolver_using
@@ -483,3 +483,46 @@ def test_this_resolver_would_see_the_move_if_anything_asked_it_to(dns: FlippingD
     assert reresolved == [METADATA], (
         "the fixture can no longer demonstrate a rebind, so the pinning test proves nothing"
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Seeing the move, as well as surviving it
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_record_that_moves_between_connections_is_reported(dns: FlippingDNS) -> None:
+    """The pin already survives this. **What is new is that somebody finds out.**
+
+    Every test above proves the connection does not follow the moved record. None of them
+    produces any trace that an attacker moved it, and a blocked rebinding attempt is an indicator
+    of compromise rather than a non-event: it means somebody pointed a name at the metadata
+    endpoint on purpose.
+
+    Driven against the nameserver that actually moves its record, rather than a stand-in, because
+    a stand-in cannot change its mind and that is the whole property being observed.
+    """
+    host, port = dns.address
+    seen: list[Decision] = []
+    watch = RebindingWatch(seen.append)
+    policy = policy_for(80, networks=("127.0.0.0/8",))
+    resolver = UdpResolver(
+        nameservers=(host,),
+        nameserver_port=port,
+        timeout=5.0,
+        attempt_timeout=1.0,
+        attempts=1,
+        families=(socket.AF_INET,),
+    )
+
+    dns.set("rebind.test", a=["127.0.0.1"])
+    target = policy.check_url("http://rebind.test/")
+    resolve(target, policy=policy, resolver=resolver, observer=watch)
+
+    dns.set("rebind.test", a=[METADATA])  # the attacker moves the record
+    with pytest.raises(BlockedAddressError):
+        resolve(target, policy=policy, resolver=resolver, observer=watch)
+
+    reported = [decision for decision in seen if decision.also_seen]
+    assert [str(decision.address) for decision in reported] == [METADATA]
+    assert reported[0].also_seen == ("127.0.0.1",)
+    assert reported[0].host == "rebind.test"
