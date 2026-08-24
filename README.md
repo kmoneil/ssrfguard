@@ -2,56 +2,178 @@
 
 **SSRF protection that connects to the address it validated.**
 
-Zero runtime dependencies, enforced by a test rather than by intent.
+Every other SSRF guard in Python validates a hostname and then hands the URL to an HTTP client
+that resolves DNS a second time. The attacker moves the record in between. This one resolves
+once, validates every answer, and connects to that address, never to a name.
 
-## Status
+[![Status](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#requirements)
+[![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](#why-zero-dependencies)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Alpha.** The address table, the policy layer, resolution, the connection layer and all three
-client surfaces (`httpx`, `httpx` async and `requests`) are built. The central claim is
-demonstrated rather than argued: a DNS server on loopback moves a record between the validation
-call and the connect call, and the connection lands on the address that was validated.
+```console
+pip install "ssrfguard[httpx]"      # or ssrfguard[requests], or both
+```
 
-The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
-without now exists, and there is no release yet.
-
-## The problem
-
-Every SSRF guard in Python validates a hostname and then hands the URL to an HTTP client that
-resolves DNS a second time. The attacker moves the record in between. The guard validates an IP
-it then discards; the connection re-resolves an unpinned hostname.
-
-2026 alone produced this bug in `datamodel-code-generator` (CVE-2026-55391), `mcp-atlassian`
-(CVE-2026-27826), `crewAI` (CVE-2026-62240), `mlflow`, AutoGPT, Craft CMS and `pydantic-ai`.
-
-## The fix
-
-Resolve once, validate every answer, and connect to that address, never to a name. The pinning
-lives at the client's connection seam, so redirects, retries and pool refills all pass through
-it, and the certificate is still verified against the *hostname*.
+**Not on PyPI yet.** That line is what it will be; today the way in is a clone, and
+[Examples](#examples) has the two commands. [Status](#status) says what is and is not done.
 
 ```python
 from ssrfguard import Policy
 from ssrfguard.httpx import Client
 
 with Client(policy=Policy()) as client:
-    client.get(untrusted_url)
+    response = client.get(untrusted_url)
 ```
 
-`ssrfguard.httpx.AsyncClient` and `ssrfguard.requests.Session` are the same guarantee for the
-async client and for `requests`. All three are ordinary clients of their libraries, so everything
-they do goes through the same seam: redirects, retries, pooled connections. A proxy is refused
-rather than silently bypassing it.
+That is the whole of it. **There is nothing to remember to call**: no `validate_url_first()`, no
+decorator, no middleware ordering. `Client` is an `httpx.Client`, so verbs, headers, timeouts,
+streaming and pooling all behave the way they already do, and the check happens at the seam where
+a socket is opened. Redirects, retries and pool refills go through it whether or not anyone
+thought about them.
 
-The async client resolves off the event loop. `getaddrinfo` blocks and has no timeout, so a
-hostile nameserver that stalled a lookup on the loop would freeze every unrelated request in the
-process. That is how a security library becomes an outage and then gets removed.
+`ssrfguard.httpx.AsyncClient` and `ssrfguard.requests.Session` are the same guarantee for the
+async client and for `requests`.
+
+**Jump to:** [The problem](#the-problem) &nbsp;·&nbsp; [What you get](#what-you-get)
+&nbsp;·&nbsp; [Documentation](#documentation) &nbsp;·&nbsp; [Examples](#examples)
+&nbsp;·&nbsp; [What it costs](#what-it-costs) &nbsp;·&nbsp; [Status](#status)
+
+## The problem
+
+An SSRF guard is three lines long and the third one is the vulnerability.
+
+```python
+address = socket.gethostbyname(urlparse(url).hostname)   # lookup 1
+if is_private(address):                                  # validated ...
+    raise Forbidden
+return httpx.get(url)                                    # ... and discarded
+```
+
+The third line resolves the name **again**. Whatever the second line approved is not what the
+third line connects to, and the gap between them is where the record moves.
+
+2026 alone produced this bug in `datamodel-code-generator` (CVE-2026-55391), `mcp-atlassian`
+(CVE-2026-27826), `crewAI` (CVE-2026-62240), `mlflow`, AutoGPT, Craft CMS and `pydantic-ai`. The
+advisories describe it in their own words. mcp-atlassian: "the guard validates an IP it then
+discards; the connection re-resolves an unpinned hostname."
+
+Same bug, seven times, in one year, in libraries written by people who knew what SSRF was. It
+keeps happening because a validator that takes a URL and returns a URL is the most natural API in
+the world and is structurally incapable of being correct.
+
+## The fix
+
+```
+check_url(url) -> Target          no I/O; scheme, port, credentials, host shape, literal address
+resolve(target) -> Address[]      exactly one lookup, every answer checked against the policy
+connect(addresses) -> socket      no name in scope, so nothing to re-resolve
+```
+
+**`connect` cannot resolve anything, because it is not given anything to resolve.** That is a
+property of the signature rather than a promise in a docstring, and it is the whole argument.
+
+The pinning lives at the client's connection seam rather than in a wrapper around `get()`, so the
+certificate is still verified against the **hostname**. Pinning that reached TLS as an IP would
+silently disable hostname verification and trade an SSRF hole for a worse one; the suite reads
+the SNI off the wire to prove it does not.
+
+## What you get
+
+|                                                           |                                                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One lookup per connection, and the socket lands on it** | Proved against a real nameserver on a real UDP socket that moves its record mid-request, not against a Python stub that cannot                                 |
+| **Three drop-in clients**                                 | `httpx`, `httpx` async and `requests`. Ordinary subclasses, so redirects, retries and pooling all pass through the same seam                                   |
+| **Refusals you can act on**                               | Every message names the value **and** the rule that refused it. Whole messages are pinned by tests, because a refusal nobody can act on gets configured around |
+| **An address table generated from IANA**                  | 60 rows, refreshed by a script and re-fetched in CI. Wrappers such as `::ffff:169.254.169.254` and `64:ff9b::a9fe:a9fe` are decoded rather than answered about |
+| **Encoded hosts refused twice**                           | `0177.0.0.1`, `2130706433`, `127.1`, circled digits. Refused at the URL layer and again at resolution                                                          |
+| **Redirects counted by the policy**                       | Not by the client, whose limit exists to stop loops. Every hop re-checked; credentials dropped when the origin changes                                         |
+| **A proxy is refused, not silently bypassed**             | A proxy resolves the target itself, so pinning cannot reach it. Saying so beats leaving you believing in a control that stopped running                        |
+| **Zero runtime dependencies**                             | Enforced by a test against the built metadata, and by a lane that installs the wheel alone into a clean interpreter                                            |
+
+## Documentation
+
+Start with **[Getting started](docs/getting-started.md)**. After that the guides are shaped by
+task rather than by module.
+
+| Guide                                                | What is in it                                                                                                              |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| [Getting started](docs/getting-started.md)           | Install, your first request, what the default policy does, what a refusal looks like                                       |
+| [Configuring a policy](docs/policy.md)               | Every field and its default, reaching your own internal services, partial answers, redirects, proxies                      |
+| [The clients](docs/clients.md)                       | The three surfaces, why they are clients and not transports, TLS, the async resolver pool, and the three named asymmetries |
+| [Errors](docs/errors.md)                             | The hierarchy, what each carries, how to handle them, and what is deliberately not wrapped                                 |
+| [Using the pieces directly](docs/building-blocks.md) | `check_url` / `resolve` / `connect` for a protocol this package ships no client for, including the correct TLS wrap        |
+| [The address table](docs/address-table.md)           | What is in it, how a wrapper is decoded, building your own, and every place it departs from IANA                           |
+| [What it costs](docs/cost.md)                        | The measured numbers, the shape that matters more, and what is not bounded                                                 |
+| [Why this exists](docs/architecture.md)              | The bug, the fix, and the failures this prevents with the test that proves each one                                        |
+
+## Examples
+
+**[`examples/`](examples/README.md) is the other half of the documentation**, and it is executed
+rather than described: nine runnable files, each of which works with **no arguments**, no network
+and no fixtures, and every one is run by the test suite.
+
+```sh
+git clone https://github.com/kmoneil/ssrfguard && cd ssrfguard
+uv sync --frozen --all-extras
+.venv/bin/python examples/03_the_pin.py
+```
+
+[`03_the_pin.py`](examples/03_the_pin.py) is the one to run first. It stands up a nameserver that
+answers honestly once and then moves the record to the metadata endpoint, and shows the three
+things that happen:
+
+```
+1. Validated, then connected, with the record moving in between
+  check_url  -> <Target http host=inside.example port=42165>
+  resolve    -> ['127.0.0.1:42165 (via inside.example)']   (lookups: 1)
+  ... the nameserver now answers 169.254.169.254 for that name ...
+  connect    -> peer 127.0.0.1   (lookups: 1)
+
+2. The same seam, inside a client, over three requests
+  request 1: 200 'ok'   (lookups: 1)
+  request 2: 200 'ok'   (lookups: 1)
+             the pool reused the connection, so nothing was resolved
+  request 3: BlockedAddressError: 169.254.169.254 is not permitted: 169.254.169.254/32 is
+             Cloud metadata (AWS, GCP, Azure IMDS) (RFC3927)
+```
+
+The rest cover refusal messages, policy recipes, the async client, `requests`, redirects, the
+building blocks and the address table. [`examples/README.md`](examples/README.md) is the index.
+
+## What it costs
+
+> **The URL check runs once per request. Resolution and the address check run once per
+> connection.**
+
+So the per-request cost is one `check_url`, and everything expensive is amortised over a
+connection's lifetime.
+
+| Measured                                                     | Per call |
+| ------------------------------------------------------------ | -------- |
+| `check_url`, ordinary hostname                               | 4.2 us   |
+| `check_url`, literal IPv4                                    | 9.0 us   |
+| `check_url`, internationalised name                          | 20.9 us  |
+| `check_url`, the most expensive URL a default policy accepts | 560 us   |
+| `import ssrfguard`, over an empty interpreter                | 19 ms    |
+
+Python 3.13 on aarch64, CPU time on the calling thread. httpx spends roughly 170 microseconds of
+its own CPU on a request over loopback, so an ordinary check is a couple of percent of that and
+nothing measurable against a request that crosses a network. `python scripts/lanes.py cost`
+prints the numbers for your hardware.
+
+**None of these is a promise.** What is enforced is in `tests/test_cost.py`, and none of it is a
+stopwatch: two of the three assertions compare one measurement to another taken in the same run,
+and the third counts calls and holds no clock at all. [What it costs](docs/cost.md) has the three
+surprises worth knowing about before you meet them.
 
 ## Requirements
 
-Python 3.10 or newer, and nothing else. The floor is 3.10 because that is the lowest interpreter
-this project can fully verify: below it, `requests` and `urllib3` cap at releases older than the
-connection seam was measured against, and mypy refuses to type-check the floor at all. Ubuntu
-22.04 LTS ships 3.10 and is supported into 2027.
+**Python 3.10 or newer, and nothing else.**
+
+The floor is 3.10 because that is the lowest interpreter this project can fully verify: below it,
+`requests` and `urllib3` cap at releases older than the connection seam was measured against, and
+mypy refuses to type-check the floor at all. Ubuntu 22.04 LTS ships 3.10 and is supported into 2027.
 
 ## Why zero dependencies
 
@@ -60,59 +182,48 @@ is a single approval.
 
 `pip install ssrfguard` installs exactly one thing. The adapters live behind extras
 (`ssrfguard[httpx]`, `ssrfguard[requests]`) and import their client lazily, so importing the
-package never touches third-party code. This is checked two ways: `tests/test_zero_deps.py`
-reads the built metadata, and the `zero-deps` CI lane installs the wheel alone into a clean
-interpreter and fails if importing it loads anything that is not ours.
+package never touches third-party code. This is checked two ways: `tests/test_zero_deps.py` reads
+the built metadata, and the `zero-deps` lane installs the wheel alone into a clean interpreter
+and fails if importing it loads anything that is not ours.
 
 The SBOM attached to every release is nearly empty. That is the point.
-
-## What it costs
-
-Every check this package makes sits in front of somebody's outbound request, so the price is a
-fair thing to ask about before installing it, and quoting a single headline number would be the
-wrong way to answer: it would be wrong on your hardware the moment you read it.
-
-The shape is stable and is the useful part. **The URL check runs once per request; resolution and
-the address check run once per connection.** So the per-request cost is one `check_url`, and
-everything expensive is amortised over a connection's lifetime.
-
-| measured | per call |
-| --- | --- |
-| `check_url`, ordinary hostname | 4.2 us |
-| `check_url`, literal IPv4 | 9.0 us |
-| `check_url`, internationalised name | 20.9 us |
-| `check_url`, the most expensive URL a default policy accepts | 560 us |
-| `import ssrfguard`, over an empty interpreter | 19 ms |
-
-Python 3.13 on aarch64, CPU time on the calling thread. For comparison, httpx spends roughly 170
-microseconds of its own CPU on a request over loopback, so the check is a couple of percent of
-that and nothing measurable at all against a request that crosses a network. Run
-`python scripts/lanes.py cost` for the numbers on your hardware; that lane prints them with the
-environment that produced them.
-
-Three things are worth knowing before you meet them:
-
-- **An internationalised name costs about five times an ASCII one**, because CPython's `idna`
-  codec runs nameprep per label in pure Python. The faster alternative is a dependency, and this
-  package does not take dependencies.
-- **The most expensive URL a default policy will accept costs about 130 times an ordinary one.**
-  Two ceilings bound it and it takes both: `max_url_length` counts characters of URL, and the
-  cost is in characters of *host*, which is capped separately at the 253 that DNS can carry.
-- **The async client's lookups are bounded by its own pool**, `resolver_slots`, defaulting to the
-  connection pool's `max_connections`. A held lookup cannot be cancelled, so past that number a
-  *new* name waits; connections already open are unaffected.
-
-None of these numbers is a promise. What is enforced is in `tests/test_cost.py`, and none of it
-is a stopwatch: a threshold in microseconds is a threshold about the machine that ran it. Two of
-the three assertions compare one measurement to another taken in the same run, and the third
-counts calls and holds no clock at all.
 
 ## What this is not
 
 **This is not a replacement for network egress control.** A library cannot stop a compromised
 process from opening a socket, and claiming otherwise is how teams end up with one control where
-they needed two. It also does not inspect application-layer traffic once a permitted host is
-reached, and it does not bound DNS resolution time.
+they needed two. Run both; this is the cheap one, and it fails closed with a message naming what
+it refused, which is what makes it useful in the case that is a bug rather than an intruder.
+
+It also does not inspect application-layer traffic once a permitted host is reached, does not
+bound DNS resolution time on the synchronous path, and does not guard a request made by anything
+that is not one of its clients. [`SECURITY.md`](SECURITY.md) has the scope in full.
+
+**An address wrongly refused is a bug too.** A guard with false positives gets removed, and a
+removed control protects nothing. Both directions are worth reporting.
+
+## Status
+
+**Alpha.** The address table, the policy layer, resolution, the connection layer and all three
+client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
+loopback moves a record between the validation call and the connect call, and the connection
+lands on the address that was validated.
+
+The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
+without now exists, and there is no release yet. [`CHANGELOG.md`](CHANGELOG.md) has what has
+moved.
+
+## How this was built
+
+**This library was built with AI assistance.** This work is a collaboration between human writing
+and AI generation. It was directed, reviewed, and accepted by a human author who takes full
+responsibility for the final result.
+
+Humans and models produce slop in roughly equal measure. What decides whether software is good is
+the verification: what is actually tested, what is measured against a real system instead of
+recalled, and which claims something would catch if they stopped being true. The failure mode
+worth designing against is **confident plausibility**, and
+[Why this exists](docs/architecture.md#how-this-was-built) says what is done about it here.
 
 ## Contributing
 
