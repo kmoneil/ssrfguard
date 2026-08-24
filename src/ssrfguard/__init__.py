@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, Verdict
 from ssrfguard._connect import SocketOption, connect
-from ssrfguard._observer import Decision, Observer, Outcome, Stage
+from ssrfguard._observer import Decision, Observer, Outcome, RebindingWatch, Stage
 from ssrfguard._policy import PartialBlock, Policy, Target
 from ssrfguard._registry import REGISTRY_SNAPSHOT, Block, Reach
 from ssrfguard._resolve import Address, Resolver, resolve
@@ -64,6 +64,7 @@ __all__ = [
     "Policy",
     "ProxyUnsupportedError",
     "Reach",
+    "RebindingWatch",
     "Resolver",
     "SSRFGuardError",
     "SocketOption",

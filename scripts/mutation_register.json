@@ -10,9 +10,9 @@
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
   "taken": "2026-08-24",
-  "surviving_mutants": 163,
-  "distinct_changes": 163,
-  "functions": 42,
+  "surviving_mutants": 166,
+  "distinct_changes": 166,
+  "functions": 45,
   "survivors": {
     "src/ssrfguard/_address.py::_embedded_v4": [
       "server = IPv4Address((packed >> 64) & 0xFFFFFFFF)  ->  server = IPv4Address((packed >> 65) & 0xFFFFFFFF)"
@@ -23,6 +23,15 @@
     "src/ssrfguard/_connect.py::connect": [
       "last: OSError | None = None  ->  last: OSError | None = \"\"",
       "raise ValueError(\"connect needs at least one address; resolve never returns none\")  ->  raise ValueError(\"XXconnect needs at least one address; resolve never returns noneXX\")"
+    ],
+    "src/ssrfguard/_observer.py::RebindingWatch._compare": [
+      "others = tuple(a for a in sighting.addresses if a != str(decision.address))  ->  others = tuple(a for a in sighting.addresses if a != str(None))"
+    ],
+    "src/ssrfguard/_observer.py::RebindingWatch._forget": [
+      "stale = [host for host, seen in self._seen.items() if now - seen.at > self.window]  ->  stale = [host for host, seen in self._seen.items() if now - seen.at >= self.window]"
+    ],
+    "src/ssrfguard/_observer.py::RebindingWatch._remember": [
+      "self._seen.popitem(last=False)  ->  self._seen.popitem(last=None)"
     ],
     "src/ssrfguard/_policy.py::_as_host_patterns": [
       "out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"*\" else _normalise(pattern, entry))  ->  out.add(f\"*.{_normalise(None, rest)}\" if head == \"*\" else _normalise(pattern, entry))",
