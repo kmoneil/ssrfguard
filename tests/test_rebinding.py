@@ -56,13 +56,29 @@ def dns() -> Iterator[FlippingDNS]:
 
 
 class Listener:
-    """A TCP listener that records the addresses it accepted on."""
+    """A TCP listener that records the addresses it accepted on.
+
+    **A second loopback address is not free everywhere.** Linux routes the whole of
+    `127.0.0.0/8`, so `127.0.0.2` binds without anything being configured. macOS assigns only
+    `127.0.0.1` to `lo0`, and the tests below need two distinguishable permitted addresses in
+    order to say which one the connection landed on. So the bind is where this file meets the
+    platform, and it says what to do rather than reporting `Errno 49` from inside a fixture.
+    """
 
     def __init__(self, host: str) -> None:
         self.host = host
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind((host, 0))
+        try:
+            self._sock.bind((host, 0))
+        except OSError as unassigned:  # pragma: no cover - only where the address is not there
+            self._sock.close()
+            hint = f"sudo ifconfig lo0 alias {host} up"
+            raise OSError(
+                f"cannot bind {host}: {unassigned}. Only 127.0.0.1 is assigned to loopback on "
+                f"this platform, and these tests need a second permitted address to move a "
+                f"record to. Add it with: {hint}"
+            ) from unassigned
         self._sock.listen(8)
         self._sock.settimeout(0.05)
         self.port = int(self._sock.getsockname()[1])
