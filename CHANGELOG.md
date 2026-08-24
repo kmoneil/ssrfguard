@@ -6,7 +6,51 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- **`ssrfguard.resolvers.UdpResolver`: a resolver with a deadline.** `socket.getaddrinfo` has no
+  timeout and `socket.setdefaulttimeout` does not reach it, which `SECURITY.md` documented as a
+  denial-of-service surface and `docs/threat-model.md` named twice more, once per path. All three
+  statements were downstream of one decision: the lookup belonged to the platform. This speaks
+  DNS over a datagram socket the package owns, so one call returns inside its `timeout` whatever
+  the far end does, proved against a server that receives queries and says nothing rather than
+  argued from the `settimeout` call.
+
+  **It adds no API.** `resolver=` has been a constructor argument on all three clients since
+  0.1.0 and `Resolver` has always been `getaddrinfo`'s shape; what was missing was something to
+  pass. It is opt-in and the default does not move, because the platform's resolver knows
+  `/etc/hosts`, `nsswitch.conf`, search domains and RFC 6724 ordering, and this one knows none of
+  them. [`docs/resolvers.md`](docs/resolvers.md) is the list of what the trade costs.
+
+  **An incomplete answer set is refused rather than used**, which is the one decision here that
+  trades availability for security and is not obvious. Returning the half that arrived looks
+  conservative, and is not: `on_partial_block='reject'` refuses a name that resolves to both
+  permitted and denied addresses, and it can only see that if it is shown every answer. A zone
+  that answers `A` and stalls `AAAA` would otherwise pick which half the policy gets to judge.
+  `families` is the documented escape for a network that drops `AAAA` instead of answering it.
+
+  **The parser is the risk and the bounds are on termination rather than on decoding.** Every
+  address it returns is validated by the policy before anything connects, so a mis-parse cannot
+  become a permit; what it could do is never return, which would have replaced a bounded stall
+  with an unbounded one. A name may follow at most 64 compression pointers and run to at most 255
+  bytes, and two property tests over arbitrary bytes require every input to decode or raise.
+
+  **What this does not do is make the asynchronous path cancellable.** `AsyncClient` still
+  offloads a synchronous call to a worker thread, so a lookup in flight is waited out rather than
+  cancelled. The thread is now released at the deadline instead of at the platform's discretion,
+  which bounds the accumulation `resolver_slots` exists to cap. Cancellation is a change to the
+  client, and it is not made here. `SECURITY.md` and `docs/threat-model.md` say so in place.
+
 ### Changed
+
+- **The `zero-deps` lane imports `ssrfguard.resolvers`, not just `ssrfguard`.** The probe imported
+  the package, and a shipped module the package does not import itself was therefore outside the
+  claim the lane exists to gate. Verified by injecting a third-party import and watching it go
+  red. Its diagnosis no longer says "an adapter", because it is no longer only adapters.
+- **One deadline check, written once.** `_over_udp`, `_over_tcp` and `_recv_exactly` each had
+  their own copy of "if the deadline has passed, raise", and two of the three could only be
+  reached by winning a race against the timeout `recv` raises on its own, so no test could drive
+  them. `_time_left` is the single bound, and it has a test.
 
 - **`_normalise` catches `ValueError` rather than `(UnicodeError, ValueError)`.** `UnicodeError`
   is a subclass of `ValueError`, so the pair caught nothing the broader name did not and only

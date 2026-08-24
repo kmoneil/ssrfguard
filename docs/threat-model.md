@@ -128,14 +128,22 @@ repository, and the value of this list is that it is in one place.
   decision. With the flag on, the guard checks the *proxy* and not the target. It is off by
   default, and turning it on is a decision to trust the proxy instead. Saying so beats leaving a
   caller believing in a control that stopped running.
-- **DNS resolution time is unbounded on the synchronous path.** `socket.getaddrinfo` takes no
-  timeout, so a hostile authoritative server can hold a synchronous request for as long as the
-  resolver's own configuration allows.
+- **DNS resolution time is unbounded with the default resolver.** `socket.getaddrinfo` takes no
+  timeout, so a hostile authoritative server can hold a request for as long as the resolver's own
+  configuration allows. **`ssrfguard.resolvers.UdpResolver` bounds it** and is one constructor
+  argument away; it is not the default because the platform's resolver knows `/etc/hosts`,
+  `nsswitch.conf` and search domains, and this one does not. See
+  [Resolvers](resolvers.md).
 - **The asynchronous path bounds the blast radius rather than the stall.** Resolution runs in a
   worker thread so a slow lookup cannot freeze the event loop, but a thread blocked in
   `getaddrinfo` cannot be cancelled. Held lookups accumulate until the client's `resolver_slots`
   are gone, and past that a new *name* waits. Connections already open are unaffected. A held
   lookup blocking a request over an already-open connection would be a finding.
+
+  **With `UdpResolver` the hold is bounded rather than removed.** The thread is released at its
+  deadline instead of at the platform's discretion, so the accumulation has a ceiling. It still
+  cannot be cancelled, because the client offloads a synchronous call rather than awaiting an
+  asynchronous one; that is a change to the client and is not made.
 - **The address table is a transcription with a date on it.** IANA moves; the `egress` lane
   re-fetches the registries and compares them to the committed table as values, so a registry
   that moved is a failing test. Between runs, the table is as fresh as its snapshot.
