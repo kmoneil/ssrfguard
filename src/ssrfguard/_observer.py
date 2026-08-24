@@ -38,13 +38,23 @@ implementation detail, and ``tests/test_cost.py`` gates it by counting.
 from __future__ import annotations
 
 import contextlib
+import time
+from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from ssrfguard._address import IPAddress
 
-__all__ = ["Decision", "Observer", "Outcome", "Stage", "redacted", "report"]
+__all__ = [
+    "Decision",
+    "Observer",
+    "Outcome",
+    "RebindingWatch",
+    "Stage",
+    "redacted",
+    "report",
+]
 
 #: Which question was being answered. The four are the four places this package decides
 #: anything: the URL as written, each address a name resolved to, the peer once a socket is up,
@@ -77,6 +87,9 @@ class Decision:
         port: The port, once one is known.
         address: The address this decision was about, at the stages that have one.
         chain: The redirect chain walked so far, in order, at the redirect stage.
+        also_seen: Other addresses this host has been observed to resolve to and be permitted
+            for, when a :class:`RebindingWatch` is attached and has any to report. Empty
+            otherwise, which is the default and the ordinary case.
     """
 
     stage: Stage
@@ -87,6 +100,7 @@ class Decision:
     port: int | None = None
     address: IPAddress | None = None
     chain: tuple[str, ...] = field(default=())
+    also_seen: tuple[str, ...] = field(default=())
 
 
 #: What a caller passes as ``observer=``. Called once per decision, with the decision.
@@ -145,3 +159,141 @@ def report(observer: Observer | None, decision: Decision) -> None:
         return
     with contextlib.suppress(Exception):
         observer(decision)
+
+
+@dataclass
+class _Sighting:
+    """What one host was last seen to resolve to, and when.
+
+    Attributes:
+        addresses: The permitted addresses observed for it, in the order first seen.
+        at: The monotonic time of the most recent one.
+    """
+
+    addresses: tuple[str, ...]
+    at: float
+
+
+class RebindingWatch:
+    """An observer that says what else a refused name has resolved to.
+
+    ``on_partial_block`` refuses a name that resolves to both permitted and denied addresses
+    *within one lookup*, because that is the signature of a rebinding attempt rather than of a
+    misconfiguration. The same judgement across two lookups had nowhere to live: a name that
+    resolved to a public address on one connection and a private one on the next is the identical
+    signal, and nothing remembered the first answer to notice.
+
+    This wraps another observer and remembers, per host, the permitted addresses it has seen. When
+    a refusal arrives for a host with others on file inside the window, it forwards the same
+    decision with :attr:`Decision.also_seen` filled in.
+
+    Four things about it are worth knowing before relying on it.
+
+    **It detects and does not enforce.** The refusal already happened, correctly, by the address
+    table. Nothing here changes what connects, and a missed detection costs visibility rather
+    than safety, which is what makes the limitation below acceptable rather than a hole.
+
+    **It cannot see a name that is only ever resolved once.** A pooled second request does not
+    re-resolve, which ``tests/test_adapter_parity.py`` asserts, so a fetcher that visits an
+    attacker's URL a single time gives this nothing to compare. It fires on retries, on redirect
+    chains that revisit a host, on pool churn, and on a name that resolves both ways within one
+    lookup. It is not a reason to relax ``on_partial_block``.
+
+    **It is not a cache and must never become one.** What it stores is compared, never reused.
+    Handing yesterday's permitted answer to a connection would be a stale pin: a name that
+    legitimately moved keeps reaching an address it no longer owns, which is the mirror image of
+    the bug this package exists to prevent.
+
+    **It is bounded, and the bound is the point.** The keys are hostnames an attacker chooses, so
+    an unbounded map here would be a memory-exhaustion path, which ``SECURITY.md`` puts squarely
+    in scope. Oldest entries are evicted at :attr:`capacity`.
+
+    Attributes:
+        observer: Where decisions go after this has looked at them.
+        window: How long a sighting stays comparable, in seconds, on a monotonic clock.
+        capacity: How many hosts to remember.
+    """
+
+    def __init__(self, observer: Observer, *, window: float = 60.0, capacity: int = 512) -> None:
+        """Wrap an observer.
+
+        Args:
+            observer: Where decisions go after this has looked at them.
+            window: How long a sighting stays comparable, in seconds.
+            capacity: How many hosts to remember.
+
+        Raises:
+            ValueError: If a bound cannot mean anything.
+        """
+        if window <= 0:
+            raise ValueError(f"window={window} must be positive")
+        if capacity < 1:
+            raise ValueError(f"capacity={capacity} must be at least 1")
+        self.observer = observer
+        self.window = window
+        self.capacity = capacity
+        self._seen: OrderedDict[str, _Sighting] = OrderedDict()
+
+    def __call__(self, decision: Decision) -> None:
+        """Look at a decision, then pass it on.
+
+        Args:
+            decision: What was decided.
+        """
+        if decision.stage == "address" and decision.host is not None:
+            decision = self._compare(decision)
+        self.observer(decision)
+
+    def _compare(self, decision: Decision) -> Decision:
+        """Record a permitted address, or enrich a refusal with what else this host reached.
+
+        Args:
+            decision: An address decision, whose host is known.
+
+        Returns:
+            The decision, with :attr:`Decision.also_seen` filled in when there is anything to
+            say and unchanged otherwise.
+        """
+        host = str(decision.host)
+        now = time.monotonic()
+        self._forget(now)
+        if decision.outcome == "permitted":
+            self._remember(host, str(decision.address), now)
+            return decision
+        sighting = self._seen.get(host)
+        if sighting is None:
+            return decision
+        # **Defensive, and kept rather than deleted.** A fixed policy cannot both permit an
+        # address into the map and refuse the same one later, so this filter removes nothing
+        # today and the mutant that guts it is equivalent. It stays because the alternative
+        # failure is a report naming the address that was just refused as somewhere the host was
+        # "also seen", which reads as a defect in the detector at the moment somebody is trying
+        # to read a refusal.
+        others = tuple(a for a in sighting.addresses if a != str(decision.address))
+        return decision if not others else replace(decision, also_seen=others)
+
+    def _remember(self, host: str, address: str, now: float) -> None:
+        """Add one permitted address to a host's sighting.
+
+        Args:
+            host: The host it was for.
+            address: The address, as text.
+            now: The monotonic time.
+        """
+        sighting = self._seen.pop(host, None)
+        addresses = () if sighting is None else sighting.addresses
+        if address not in addresses:
+            addresses = (*addresses, address)
+        self._seen[host] = _Sighting(addresses=addresses, at=now)
+        while len(self._seen) > self.capacity:
+            self._seen.popitem(last=False)
+
+    def _forget(self, now: float) -> None:
+        """Drop sightings older than the window.
+
+        Args:
+            now: The monotonic time.
+        """
+        stale = [host for host, seen in self._seen.items() if now - seen.at > self.window]
+        for host in stale:
+            del self._seen[host]
