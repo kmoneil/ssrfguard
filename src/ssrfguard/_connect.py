@@ -35,6 +35,7 @@ import socket
 from collections.abc import Iterable, Sequence
 from ipaddress import ip_address
 
+from ssrfguard._observer import Decision, Observer, report
 from ssrfguard._policy import Policy
 from ssrfguard._resolve import Address
 from ssrfguard.errors import BlockedAddressError
@@ -79,6 +80,7 @@ def _open(
     timeout: float | None,
     source_address: tuple[str, int] | None,
     socket_options: Iterable[SocketOption] | None,
+    observer: Observer | None = None,
 ) -> socket.socket:
     """Open one socket to one address.
 
@@ -88,6 +90,7 @@ def _open(
             sequence, matching ``socket.create_connection``.
         source_address: Local address to bind before connecting.
         socket_options: ``setsockopt`` arguments applied before connecting.
+        observer: Where to report the peer, or ``None``.
 
     Returns:
         The connected socket.
@@ -113,29 +116,53 @@ def _open(
         # **The pin.** `address.sockaddr` is the tuple the resolver produced and the policy
         # approved, passed through untouched, so for IPv6 the scope identifier is still on it.
         sock.connect(address.sockaddr)
-        _verify_peer(sock, address)
+        _verify_peer(sock, address, observer)
     except BaseException:
         sock.close()
         raise
     return sock
 
 
-def _verify_peer(sock: socket.socket, address: Address) -> None:
+def _verify_peer(sock: socket.socket, address: Address, observer: Observer | None = None) -> None:
     """Check that the socket is connected to the address that was validated.
 
     Args:
         sock: The connected socket.
         address: The address it was supposed to reach.
+        observer: Where to report the peer, or ``None``.
 
     Raises:
         BlockedAddressError: If the peer is somewhere else.
     """
     peer = ip_address(str(sock.getpeername()[0]))
     if peer != address.ip:
-        raise BlockedAddressError(
-            str(peer),
+        reason = (
             f"the connection was made to {peer} after {address.ip} was validated, so something "
-            f"between this process and the network rewrote the destination",
+            f"between this process and the network rewrote the destination"
+        )
+        if observer is not None:
+            report(
+                observer,
+                Decision(
+                    stage="peer",
+                    outcome="refused",
+                    reason=reason,
+                    host=address.hostname,
+                    port=address.port,
+                    address=peer,
+                ),
+            )
+        raise BlockedAddressError(str(peer), reason)
+    if observer is not None:
+        report(
+            observer,
+            Decision(
+                stage="peer",
+                outcome="permitted",
+                host=address.hostname,
+                port=address.port,
+                address=peer,
+            ),
         )
 
 
@@ -146,6 +173,7 @@ def connect(
     timeout: float | None = None,
     source_address: tuple[str, int] | None = None,
     socket_options: Iterable[SocketOption] | None = None,
+    observer: Observer | None = None,
 ) -> socket.socket:
     """Connect to the first reachable address among those validated, up to the attempt cap.
 
@@ -163,6 +191,10 @@ def connect(
             ``timeout * policy.max_connection_attempts``, which is the reason that cap exists.
         source_address: Local address to bind before connecting.
         socket_options: ``setsockopt`` arguments applied to every attempt.
+        observer: Where to report the peer once a socket is up, or ``None`` to report
+            nothing. **This is the only stage that reports something the policy did not
+            decide in advance**: everything else is a verdict on a value already in hand, and
+            this is a verdict on what the kernel actually connected to.
 
     Returns:
         A connected socket, whose peer has been confirmed to be the address that was validated.
@@ -201,7 +233,7 @@ def connect(
     only_timeouts = True
     for address in attempted:
         try:
-            return _open(address, timeout, source_address, socket_options)
+            return _open(address, timeout, source_address, socket_options, observer)
         except OSError as failed:
             failures.append(f"{address} ({failed})")
             last = failed

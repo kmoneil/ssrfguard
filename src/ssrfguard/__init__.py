@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, Verdict
 from ssrfguard._connect import SocketOption, connect
+from ssrfguard._observer import Decision, Observer, Outcome, Stage
 from ssrfguard._policy import PartialBlock, Policy, Target
 from ssrfguard._registry import REGISTRY_SNAPSHOT, Block, Reach
 from ssrfguard._resolve import Address, Resolver, resolve
@@ -56,6 +57,9 @@ __all__ = [
     "Block",
     "BlockedAddressError",
     "BlockedURLError",
+    "Decision",
+    "Observer",
+    "Outcome",
     "PartialBlock",
     "Policy",
     "ProxyUnsupportedError",
@@ -63,6 +67,7 @@ __all__ = [
     "Resolver",
     "SSRFGuardError",
     "SocketOption",
+    "Stage",
     "Target",
     "TooManyRedirectsError",
     "Verdict",

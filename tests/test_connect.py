@@ -196,11 +196,18 @@ def test_a_socket_option_carrying_bytes_is_applied_too(listener: tuple[str, int]
 
 
 def test_a_source_address_is_bound(listener: tuple[str, int]) -> None:
+    """**127.0.0.2 rather than 127.0.0.1, because the first one proves nothing.**
+
+    Connecting to a loopback address binds a loopback source with no help from anybody, so
+    asserting the source is 127.0.0.1 passes whether or not `source_address` was honoured, or
+    even passed on. Mutation testing found it: dropping the argument on the way to the socket
+    left this green. A second loopback address is a value nothing else would produce.
+    """
     host, port = listener
     with connect(
-        [address_for(host, port)], policy=LOOPBACK_OK, timeout=5, source_address=("127.0.0.1", 0)
+        [address_for(host, port)], policy=LOOPBACK_OK, timeout=5, source_address=("127.0.0.2", 0)
     ) as sock:
-        assert sock.getsockname()[0] == "127.0.0.1"
+        assert sock.getsockname()[0] == "127.0.0.2"
 
 
 def test_a_failed_attempt_leaks_no_socket() -> None:
@@ -249,6 +256,9 @@ def test_a_peer_that_is_not_the_validated_address_is_refused_and_the_socket_clos
         connect([address_for(host, port)], policy=LOOPBACK_OK, timeout=5)
     assert "rewrote the destination" in caught.value.reason
     assert "203.0.113.9" in caught.value.reason
+    # The attribute, not only the rendered message: a caller branching on where it landed reads
+    # this, and a message that happens to contain the address is not the same promise.
+    assert caught.value.address == "203.0.113.9"
     assert all(sock.fileno() == -1 for sock in opened), (
         "a socket that failed the peer check must be closed, not left open and refused"
     )

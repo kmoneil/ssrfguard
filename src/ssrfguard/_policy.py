@@ -27,8 +27,9 @@ from typing import Literal
 from urllib.parse import SplitResult, urlsplit
 
 from ssrfguard._address import DEFAULT_DENIED, AddressTable, IPAddress, IPNetwork
+from ssrfguard._observer import Decision, Observer, redacted, report
 from ssrfguard._registry import Block, Reach
-from ssrfguard.errors import BlockedAddressError, BlockedURLError
+from ssrfguard.errors import BlockedAddressError, BlockedURLError, SSRFGuardError
 
 __all__ = ["PartialBlock", "Policy", "Target"]
 
@@ -388,7 +389,7 @@ class Policy:
 
     # URLs ----------
 
-    def check_url(self, url: str) -> Target:
+    def check_url(self, url: str, *, observer: Observer | None = None) -> Target:
         """Decide everything about a URL that can be decided without the network.
 
         **This is necessary and it is not sufficient.** A URL that survives here has a permitted
@@ -399,6 +400,10 @@ class Policy:
 
         Args:
             url: The URL to check.
+            observer: Where to report what was decided, or ``None`` to report nothing, which is
+                the default and costs nothing: no record is built when there is nobody to hand
+                it to. **Whatever it raises is swallowed**, because a sink that throws on a
+                permitted URL would turn an allow into a deny.
 
         Returns:
             The origin to resolve.
@@ -411,6 +416,50 @@ class Policy:
         """
         if not isinstance(url, str):
             raise TypeError(f"check_url expects a string, got {type(url).__name__}")
+        try:
+            target = self._decide(url)
+        except SSRFGuardError as refused:
+            if observer is not None:
+                report(
+                    observer,
+                    Decision(
+                        stage="url",
+                        outcome="refused",
+                        reason=str(getattr(refused, "reason", refused)),
+                        url=redacted(url),
+                    ),
+                )
+            raise
+        if observer is not None:
+            report(
+                observer,
+                Decision(
+                    stage="url",
+                    outcome="permitted",
+                    url=redacted(url),
+                    host=target.host,
+                    port=target.port,
+                    address=target.address,
+                ),
+            )
+        return target
+
+    def _decide(self, url: str) -> Target:
+        """Everything ``check_url`` decides, with nothing to report it to.
+
+        Split out so the reporting in :meth:`check_url` is one ``try`` around the whole
+        decision rather than a branch inside each rule, which is what keeps this function's
+        shape the thing a reader checks the policy against.
+
+        Args:
+            url: The URL to check.
+
+        Returns:
+            The origin to resolve.
+
+        Raises:
+            BlockedURLError: If the URL is refused, naming the rule that refused it.
+        """
         self._reject_overlong(url)
         self._reject_control_characters(url)
         split = self._split(url)
