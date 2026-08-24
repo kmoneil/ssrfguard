@@ -51,8 +51,20 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # Gate first. Publishing is the one irreversible step in this project: a
-  # version number on PyPI cannot be reused, even after a delete. So the full
-  # gating set runs against the tagged tree before anything is built for upload.
+  # version number on PyPI cannot be reused, even after a delete. So the gating
+  # set runs against the tagged tree before anything is built for upload.
+  #
+  # **Nine of the ten gating lanes run here, and the tenth is named rather than
+  # forgotten.** `compat` is the exception: it proves the package on four
+  # interpreters and gets its meaning from the matrix, which is a `ci.yml`
+  # construct rather than something one runner reproduces. A tag can only sit on
+  # a commit that reached `main`, and `main` is protected by a ruleset requiring
+  # every `compat` row, so that commit has already had the matrix run against it.
+  # Re-running one row here on the development interpreter would look like
+  # coverage and be a single row.
+  #
+  # This paragraph exists because the line above used to say "the full gating
+  # set" while `leaks`, `mutation` and `compat` were all absent from the list.
   #
   # **Every `uv` invocation here takes `--frozen`**, so the one lane that ends in
   # an upload is not the only one permitted to install something `uv.lock` does
@@ -78,6 +90,10 @@ jobs:
       - run: uv run --frozen python scripts/lanes.py rebind
       - run: uv run --frozen python scripts/lanes.py adapters
       - run: uv run --frozen python scripts/lanes.py egress
+      - run: uv run --frozen python scripts/lanes.py leaks
+      # Gates since the register exists: a survivor outside it fails here rather
+      # than being published and found later.
+      - run: uv run --frozen python scripts/lanes.py mutation
       # Its own environment, for the reason `ci.yml` gives: pip-audit pulls `requests` and
       # `urllib3`, and installing them next to the zero-deps check would make its precondition
       # silently false. Run last so nothing after it inherits the contamination.
