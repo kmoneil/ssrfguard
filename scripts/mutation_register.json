@@ -10,9 +10,9 @@
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
   "taken": "2026-08-24",
-  "surviving_mutants": 156,
-  "distinct_changes": 156,
-  "functions": 39,
+  "surviving_mutants": 163,
+  "distinct_changes": 163,
+  "functions": 42,
   "survivors": {
     "src/ssrfguard/_address.py::_embedded_v4": [
       "server = IPv4Address((packed >> 64) & 0xFFFFFFFF)  ->  server = IPv4Address((packed >> 65) & 0xFFFFFFFF)"
@@ -23,6 +23,19 @@
     "src/ssrfguard/_connect.py::connect": [
       "last: OSError | None = None  ->  last: OSError | None = \"\"",
       "raise ValueError(\"connect needs at least one address; resolve never returns none\")  ->  raise ValueError(\"XXconnect needs at least one address; resolve never returns noneXX\")"
+    ],
+    "src/ssrfguard/_policy.py::_as_host_patterns": [
+      "out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"*\" else _normalise(pattern, entry))  ->  out.add(f\"*.{_normalise(None, rest)}\" if head == \"*\" else _normalise(pattern, entry))",
+      "out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"*\" else _normalise(pattern, entry))  ->  out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"*\" else _normalise(None, entry))",
+      "out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"*\" else _normalise(pattern, entry))  ->  out.add(f\"*.{_normalise(pattern, rest)}\" if head == \"XX*XX\" else _normalise(pattern, entry))"
+    ],
+    "src/ssrfguard/_policy.py::_host_is_allowed": [
+      "name = host.rstrip(\".\")  ->  name = host.rstrip(\"XX.XX\")"
+    ],
+    "src/ssrfguard/_policy.py::_nearest_pattern": [
+      "bare = pattern.removeprefix(\"*.\")  ->  bare = pattern.removeprefix(\"XX*.XX\")",
+      "bare = pattern.removeprefix(\"*.\")  ->  bare = pattern.removesuffix(\"*.\")",
+      "name = host.rstrip(\".\")  ->  name = host.rstrip(\"XX.XX\")"
     ],
     "src/ssrfguard/_registry.py::_b": [
       "def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = \"\") -> Block:  ->  def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = \"XXXX\") -> Block:",
