@@ -241,6 +241,14 @@ def test_every_file_the_docs_cite_is_there(source: Path) -> None:
     assert not missing, f"{source.name} cites files that do not exist: {missing}"
 
 
+#: How a test *definition* is recognised in `tests/`. **The `async` is not optional decoration.**
+#: Without it this matched only synchronous definitions, so every `async def test_...` read as
+#: undefined and citing one in a document was impossible: the claim would be reported missing
+#: while the test sat in the file being pointed at. The async client is a documented guarantee of
+#: this package, so its evidence has to be nameable.
+DEFINED_TEST = re.compile(r"^(?:async )?def (test_\w+)", re.MULTILINE)
+
+
 @pytest.mark.parametrize("source", MARKDOWN, ids=lambda p: str(p.relative_to(REPO_ROOT)))
 def test_every_test_the_docs_cite_is_there(source: Path) -> None:
     """**A prevention claim naming a test that no longer exists is worse than no claim.**
@@ -257,7 +265,7 @@ def test_every_test_the_docs_cite_is_there(source: Path) -> None:
     defined = {
         name
         for path in (REPO_ROOT / "tests").glob("*.py")
-        for name in re.findall(r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.MULTILINE)
+        for name in DEFINED_TEST.findall(path.read_text(encoding="utf-8"))
     }
     missing = [name for name in cited if name not in defined]
 
@@ -281,6 +289,11 @@ def test_the_citation_search_can_actually_fail() -> None:
     assert CITED_TEST.findall("`tests/x.py::test_a_pooled_second_request_asks_nothing`") == [
         "test_a_pooled_second_request_asks_nothing"
     ]
+
+    assert DEFINED_TEST.findall("def test_sync(x):\nasync def test_async(y):") == [
+        "test_sync",
+        "test_async",
+    ], "an async definition is a definition, and citing one used to report it as missing"
 
     architecture = (DOCS / "architecture.md").read_text(encoding="utf-8")
     assert len(set(CITED_TEST.findall(architecture))) >= 5, (
