@@ -88,6 +88,7 @@ from httpx._client import _is_https_redirect, _same_origin
 from httpx._utils import get_environment_proxies
 
 from ssrfguard._connect import connect, exhausted
+from ssrfguard._observer import Decision, Observer, redacted, report
 from ssrfguard._policy import Policy, Target, _literal_address
 from ssrfguard._resolve import Address, Resolver, resolve
 from ssrfguard.errors import (
@@ -213,7 +214,9 @@ def _check_port(policy: Policy, port: int) -> None:
         )
 
 
-def _verify_peer(stream: anyio.abc.SocketStream, address: Address) -> None:
+def _verify_peer(
+    stream: anyio.abc.SocketStream, address: Address, observer: Observer | None = None
+) -> None:
     """Check that the connection reached the address that was validated.
 
     The synchronous path does this on the socket it opened itself; this does it on the one anyio
@@ -223,6 +226,12 @@ def _verify_peer(stream: anyio.abc.SocketStream, address: Address) -> None:
     Args:
         stream: The connected stream.
         address: The address it was supposed to reach.
+        observer: Where to report the peer, or ``None``. **The asynchronous path reports this
+            itself rather than inheriting it**, because it does not call
+            :func:`ssrfguard.connect`: anyio owns socket creation here. A stage reported on two
+            surfaces and dropped on the third is the drift ``tests/test_adapter_parity.py``
+            exists to catch, and observability is where it is easiest, since nothing fails when
+            a record goes missing.
 
     Raises:
         BlockedAddressError: If the peer is somewhere else.
@@ -234,14 +243,39 @@ def _verify_peer(stream: anyio.abc.SocketStream, address: Address) -> None:
         return
     peer = ip_address(str(remote[0]))
     if peer != address.ip:
-        raise BlockedAddressError(
-            str(peer),
+        reason = (
             f"the connection was made to {peer} after {address.ip} was validated, so something "
-            f"between this process and the network rewrote the destination",
+            f"between this process and the network rewrote the destination"
+        )
+        if observer is not None:
+            report(
+                observer,
+                Decision(
+                    stage="peer",
+                    outcome="refused",
+                    reason=reason,
+                    host=address.hostname,
+                    port=address.port,
+                    address=peer,
+                ),
+            )
+        raise BlockedAddressError(str(peer), reason)
+    if observer is not None:
+        report(
+            observer,
+            Decision(
+                stage="peer",
+                outcome="permitted",
+                host=address.hostname,
+                port=address.port,
+                address=peer,
+            ),
         )
 
 
-def _check_redirect_cap(policy: Policy, response: httpx.Response) -> None:
+def _check_redirect_cap(
+    policy: Policy, response: httpx.Response, observer: Observer | None = None
+) -> None:
     """Refuse a chain longer than the policy allows, before the next hop is built.
 
     Counted here rather than left to ``max_redirects``, because the client's own limit is not a
@@ -252,13 +286,28 @@ def _check_redirect_cap(policy: Policy, response: httpx.Response) -> None:
     Args:
         policy: The policy the chain is being walked under.
         response: The response that redirected. Its ``history`` is the chain so far.
+        observer: Where to report a refused chain, or ``None``. A chain that ran out of hops is
+            the shape of a redirect loop somebody is driving, so it is worth a record even
+            though it names no address.
 
     Raises:
         TooManyRedirectsError: If this hop would take the chain past the policy's limit.
     """
     walked = [*response.history, response]
     if len(walked) > policy.max_redirects:
-        raise TooManyRedirectsError(policy.max_redirects, tuple(str(hop.url) for hop in walked))
+        chain = tuple(str(hop.url) for hop in walked)
+        if observer is not None:
+            report(
+                observer,
+                Decision(
+                    stage="redirect",
+                    outcome="refused",
+                    reason=f"redirect chain exceeded max_redirects={policy.max_redirects}",
+                    url=redacted(chain[-1]),
+                    chain=tuple(redacted(hop) for hop in chain),
+                ),
+            )
+        raise TooManyRedirectsError(policy.max_redirects, chain)
 
 
 def _stripped_headers(
@@ -309,16 +358,27 @@ class SafeBackend(httpcore.NetworkBackend):
             supplying one grants no permission.
     """
 
-    def __init__(self, *, policy: Policy, resolver: Resolver | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        policy: Policy,
+        resolver: Resolver | None = None,
+        observer: Observer | None = None,
+    ) -> None:
         """Build the backend.
 
         Args:
             policy: What this backend is willing to reach.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
         """
         self.policy = policy
         self.resolver = resolver
+        self.observer = observer
 
     def connect_tcp(
         self,
@@ -352,10 +412,13 @@ class SafeBackend(httpcore.NetworkBackend):
         _check_port(self.policy, port)
         target = _origin_target(host, port)
         try:
-            addresses = resolve(target, policy=self.policy, resolver=self.resolver)
+            addresses = resolve(
+                target, policy=self.policy, resolver=self.resolver, observer=self.observer
+            )
             sock = connect(
                 addresses,
                 policy=self.policy,
+                observer=self.observer,
                 # httpcore reads None as "no timeout" where `connect` reads it as "leave the
                 # socket at socket.getdefaulttimeout()". The two differ only in a process that
                 # set a global default, and there this is the stricter of the two.
@@ -421,6 +484,7 @@ class SafeTransport(httpx.HTTPTransport):
         *,
         policy: Policy,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         verify: ssl.SSLContext | str | bool = True,
         cert: str | tuple[str, str] | tuple[str, str, str] | None = None,
         trust_env: bool = True,
@@ -437,6 +501,10 @@ class SafeTransport(httpx.HTTPTransport):
 
         Args:
             policy: What this transport is willing to reach.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
             verify: TLS verification, as httpx defines it. Prefer an ``ssl.SSLContext``:
@@ -478,6 +546,7 @@ class SafeTransport(httpx.HTTPTransport):
             raise ProxyUnsupportedError(str(proxy))
 
         self.policy = policy
+        self.observer = observer
         limits = _HTTPX_DEFAULT_LIMITS if limits is None else limits
         # Built once and handed to both, rather than letting each build its own: `verify=<str>`
         # and `cert=` are deprecated in httpx and warn when they are resolved, so resolving
@@ -514,7 +583,7 @@ class SafeTransport(httpx.HTTPTransport):
             local_address=local_address,
             retries=retries,
             socket_options=socket_options,
-            network_backend=SafeBackend(policy=policy, resolver=resolver),
+            network_backend=SafeBackend(policy=policy, resolver=resolver, observer=observer),
         )
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
@@ -536,7 +605,7 @@ class SafeTransport(httpx.HTTPTransport):
             BlockedURLError: If the URL is not permitted.
             BlockedAddressError: If the host was a literal address the policy denies.
         """
-        self.policy.check_url(str(request.url))
+        self.policy.check_url(str(request.url), observer=self.observer)
         return super().handle_request(request)
 
 
@@ -708,6 +777,7 @@ class Client(httpx.Client):
         *,
         policy: Policy | None = None,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         transport: SafeTransport | None = None,
         **options: object,
     ) -> None:
@@ -716,6 +786,10 @@ class Client(httpx.Client):
         Args:
             policy: What this client is willing to reach. Required unless ``transport`` is given,
                 in which case the transport's policy is used.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
             transport: An already-built :class:`SafeTransport`, for a caller who configured one.
@@ -733,6 +807,7 @@ class Client(httpx.Client):
         """
         policy = _policy_from(policy, resolver, transport, SafeTransport)
         self.policy = policy
+        self.observer = observer
         transport_options, client_options = _split_options(options)
 
         trust_env = bool(client_options.get("trust_env", True))
@@ -741,7 +816,9 @@ class Client(httpx.Client):
             raise ProxyUnsupportedError(configured)
 
         if transport is None:
-            transport = SafeTransport(policy=policy, resolver=resolver, **transport_options)
+            transport = SafeTransport(
+                policy=policy, resolver=resolver, observer=observer, **transport_options
+            )
         super().__init__(transport=transport, **client_options)
 
     def _build_redirect_request(
@@ -764,7 +841,7 @@ class Client(httpx.Client):
         Raises:
             TooManyRedirectsError: If this hop would take the chain past the policy's limit.
         """
-        _check_redirect_cap(self.policy, response)
+        _check_redirect_cap(self.policy, response, self.observer)
         return super()._build_redirect_request(request, response)
 
     def _redirect_headers(
@@ -827,12 +904,17 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         *,
         policy: Policy,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         resolver_slots: int = _RESOLVER_SLOTS,
     ) -> None:
         """Build the backend.
 
         Args:
             policy: What this backend is willing to reach.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
             resolver_slots: How many lookups may be in flight at once. See
@@ -849,6 +931,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             )
         self.policy = policy
         self.resolver = resolver
+        self.observer = observer
         # Built here rather than on first use: anyio returns a lazily-bound adapter when there is
         # no event loop running, so this is safe to construct from ordinary synchronous code,
         # which is where a client is usually built.
@@ -887,7 +970,9 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
         """
         _check_port(self.policy, port)
         target = _origin_target(host, port)
-        lookup = functools.partial(resolve, target, policy=self.policy, resolver=self.resolver)
+        lookup = functools.partial(
+            resolve, target, policy=self.policy, resolver=self.resolver, observer=self.observer
+        )
         try:
             # **This client's limiter, not anyio's shared default.** See `_RESOLVER_SLOTS`.
             addresses = await anyio.to_thread.run_sync(lookup, limiter=self._resolver_limiter)
@@ -967,7 +1052,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
                 for option in socket_options or ():
                     raw = stream.extra(anyio.abc.SocketAttribute.raw_socket)  # noqa: S610
                     raw.setsockopt(*option)  # pyright: ignore[reportCallIssue, reportArgumentType]
-                _verify_peer(stream, address)
+                _verify_peer(stream, address, self.observer)
             except BaseException:
                 await stream.aclose()
                 raise
@@ -1049,6 +1134,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
         *,
         policy: Policy,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         verify: ssl.SSLContext | str | bool = True,
         cert: str | tuple[str, str] | tuple[str, str, str] | None = None,
         trust_env: bool = True,
@@ -1066,6 +1152,10 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
 
         Args:
             policy: What this transport is willing to reach.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``.
             verify: TLS verification, as httpx defines it. Prefer an ``ssl.SSLContext``.
             cert: A client certificate.
@@ -1097,6 +1187,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             raise ProxyUnsupportedError(str(proxy))
 
         self.policy = policy
+        self.observer = observer
         limits = _HTTPX_DEFAULT_LIMITS if limits is None else limits
         ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
         super().__init__(
@@ -1125,6 +1216,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             network_backend=AsyncSafeBackend(
                 policy=policy,
                 resolver=resolver,
+                observer=observer,
                 resolver_slots=_resolver_slots_for(limits, resolver_slots),
             ),
         )
@@ -1142,7 +1234,7 @@ class AsyncSafeTransport(httpx.AsyncHTTPTransport):
             BlockedURLError: If the URL is not permitted.
             BlockedAddressError: If the host was a literal address the policy denies.
         """
-        self.policy.check_url(str(request.url))
+        self.policy.check_url(str(request.url), observer=self.observer)
         return await super().handle_async_request(request)
 
 
@@ -1165,6 +1257,7 @@ class AsyncClient(httpx.AsyncClient):
         *,
         policy: Policy | None = None,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         transport: AsyncSafeTransport | None = None,
         resolver_slots: int | None = None,
         **options: object,
@@ -1173,6 +1266,10 @@ class AsyncClient(httpx.AsyncClient):
 
         Args:
             policy: What this client is willing to reach. Required unless ``transport`` is given.
+            observer: Where to report every decision made on this client's behalf, or
+                ``None`` to report nothing, which is the default and costs nothing.
+                **Whatever it raises is swallowed**, because a sink that throws on a permitted
+                request would turn an allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``.
             transport: An already-built :class:`AsyncSafeTransport`.
             resolver_slots: How many name lookups may be in flight at once, or ``None`` to take
@@ -1190,6 +1287,7 @@ class AsyncClient(httpx.AsyncClient):
         """
         policy = _policy_from(policy, resolver, transport, AsyncSafeTransport)
         self.policy = policy
+        self.observer = observer
         transport_options, client_options = _split_options(options)
 
         trust_env = bool(client_options.get("trust_env", True))
@@ -1201,6 +1299,7 @@ class AsyncClient(httpx.AsyncClient):
             transport = AsyncSafeTransport(
                 policy=policy,
                 resolver=resolver,
+                observer=observer,
                 resolver_slots=resolver_slots,
                 **transport_options,
             )
@@ -1221,7 +1320,7 @@ class AsyncClient(httpx.AsyncClient):
         Raises:
             TooManyRedirectsError: If this hop would take the chain past the policy's limit.
         """
-        _check_redirect_cap(self.policy, response)
+        _check_redirect_cap(self.policy, response, self.observer)
         return super()._build_redirect_request(request, response)
 
     def _redirect_headers(

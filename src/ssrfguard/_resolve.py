@@ -26,6 +26,7 @@ from ipaddress import ip_address
 from typing import Any
 
 from ssrfguard._address import IPAddress
+from ssrfguard._observer import Decision, Observer, report
 from ssrfguard._policy import Policy, Target
 from ssrfguard.errors import BlockedAddressError
 
@@ -179,7 +180,11 @@ def _refuse_partial(
 
 
 def resolve(
-    target: Target, *, policy: Policy, resolver: Resolver | None = None
+    target: Target,
+    *,
+    policy: Policy,
+    resolver: Resolver | None = None,
+    observer: Observer | None = None,
 ) -> tuple[Address, ...]:
     """Resolve an origin and validate every answer.
 
@@ -196,6 +201,9 @@ def resolve(
         policy: The policy to validate against.
         resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with their
             own. Whatever it returns is validated, so supplying one grants no permission.
+        observer: Where to report each answer's verdict, or ``None`` to report nothing.
+            **One record per address**, not one per name: a name resolving to four addresses is
+            four decisions, and which of them was refused is the thing worth knowing.
 
     Returns:
         Every permitted answer, in the resolver's own order. Never empty.
@@ -244,8 +252,31 @@ def resolve(
             policy.check_address(answer.ip)
         except BlockedAddressError as refused:
             denied.append((answer, refused.reason))
+            if observer is not None:
+                report(
+                    observer,
+                    Decision(
+                        stage="address",
+                        outcome="refused",
+                        reason=refused.reason,
+                        host=target.host,
+                        port=target.port,
+                        address=answer.ip,
+                    ),
+                )
         else:
             permitted.append(answer)
+            if observer is not None:
+                report(
+                    observer,
+                    Decision(
+                        stage="address",
+                        outcome="permitted",
+                        host=target.host,
+                        port=target.port,
+                        address=answer.ip,
+                    ),
+                )
 
     if not permitted:
         _refuse_all_denied(target, tuple(denied))

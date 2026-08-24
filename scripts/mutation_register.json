@@ -9,10 +9,10 @@
     "raw count and distinct_changes is what a register can tell apart.",
     "This is debt with a date on it, not a target. See the script's own docstring."
   ],
-  "taken": "2026-08-24",
-  "surviving_mutants": 161,
-  "distinct_changes": 161,
-  "functions": 40,
+  "taken": "2026-08-25",
+  "surviving_mutants": 156,
+  "distinct_changes": 156,
+  "functions": 39,
   "survivors": {
     "src/ssrfguard/_address.py::_embedded_v4": [
       "server = IPv4Address((packed >> 64) & 0xFFFFFFFF)  ->  server = IPv4Address((packed >> 65) & 0xFFFFFFFF)"
@@ -20,14 +20,9 @@
     "src/ssrfguard/_connect.py::_open": [
       "sock = socket.socket(address.family, socket.SOCK_STREAM)  ->  sock = socket.socket(address.family, )"
     ],
-    "src/ssrfguard/_connect.py::_verify_peer": [
-      "str(peer),  ->  None,",
-      "str(peer),  ->  str(None),"
-    ],
     "src/ssrfguard/_connect.py::connect": [
       "last: OSError | None = None  ->  last: OSError | None = \"\"",
-      "raise ValueError(\"connect needs at least one address; resolve never returns none\")  ->  raise ValueError(\"XXconnect needs at least one address; resolve never returns noneXX\")",
-      "return _open(address, timeout, source_address, socket_options)  ->  return _open(address, timeout, None, socket_options)"
+      "raise ValueError(\"connect needs at least one address; resolve never returns none\")  ->  raise ValueError(\"XXconnect needs at least one address; resolve never returns noneXX\")"
     ],
     "src/ssrfguard/_registry.py::_b": [
       "def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = \"\") -> Block:  ->  def _b(cidr: str, name: str, rfc: str, reach: Reach, note: str = \"XXXX\") -> Block:",
@@ -123,9 +118,7 @@
       "named = \", \".join(sorted(unknown))  ->  named = \"XX, XX\".join(sorted(unknown))"
     ],
     "src/ssrfguard/httpx.py::_verify_peer": [
-      "remote = stream.extra(anyio.abc.SocketAttribute.remote_address, None)  # noqa: S610  ->  remote = stream.extra(anyio.abc.SocketAttribute.remote_address, )  # noqa: S610",
-      "str(peer),  ->  None,",
-      "str(peer),  ->  str(None),"
+      "remote = stream.extra(anyio.abc.SocketAttribute.remote_address, None)  # noqa: S610  ->  remote = stream.extra(anyio.abc.SocketAttribute.remote_address, )  # noqa: S610"
     ],
     "src/ssrfguard/requests.py::SafeAdapter.__init__": [
       "max_retries=max_retries,  ->  (line removed)",

@@ -31,7 +31,7 @@ import httpx
 import pytest
 
 import ssrfguard.httpx as ssrfguard_httpx
-from ssrfguard import BlockedAddressError, Policy
+from ssrfguard import BlockedAddressError, Decision, Policy
 from ssrfguard.errors import BlockedURLError, ProxyUnsupportedError
 from ssrfguard.httpx import AsyncClient, AsyncSafeBackend, AsyncSafeTransport, SafeTransport
 
@@ -348,8 +348,9 @@ async def test_a_socket_option_that_fails_does_not_leave_the_connection_open(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("watching", [False, True], ids=["unobserved", "observed"])
 async def test_a_connection_that_lands_elsewhere_is_refused(
-    server: RecordingServer, monkeypatch: pytest.MonkeyPatch
+    server: RecordingServer, monkeypatch: pytest.MonkeyPatch, watching: bool
 ) -> None:
     """The check after the connection is up, exercised by making the peer disagree.
 
@@ -382,12 +383,36 @@ async def test_a_connection_that_lands_elsewhere_is_refused(
     monkeypatch.setattr(anyio, "connect_tcp", lying)
 
     policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
-    backend = AsyncSafeBackend(policy=policy, resolver=Resolver(**{"pinned.test": "127.0.0.1"}))
+    seen: list[Decision] = []
+    backend = AsyncSafeBackend(
+        policy=policy,
+        resolver=Resolver(**{"pinned.test": "127.0.0.1"}),
+        observer=seen.append if watching else None,
+    )
 
     with pytest.raises(BlockedAddressError) as refusal:
         await backend.connect_tcp("pinned.test", server.port)
 
     assert "rewrote the destination" in refusal.value.reason
+    assert refusal.value.address == "203.0.113.9"
+
+    # **The refusal is the same either way, and that is the half worth parametrising for.**
+    # Reporting may not change what is decided, so the unobserved row is not redundant with the
+    # observed one: it is the assertion that adding a sink changed nothing.
+    peer = [decision for decision in seen if decision.stage == "peer"]
+    if not watching:
+        assert peer == []
+        return
+    # The asynchronous client does not call `ssrfguard.connect`, so its peer check is its own
+    # code and its reporting is too. A stage present on two surfaces and missing on the third is
+    # the drift the parity matrix exists for, and nothing fails when a record goes missing.
+    assert [decision.outcome for decision in peer] == ["refused"]
+    assert str(peer[0].address) == "203.0.113.9"
+    # **The record's own fields, not the exception's.** A sink reads these; asserting only
+    # `refusal.value.reason` leaves the record free to carry nothing and stay green.
+    assert "rewrote the destination" in (peer[0].reason or "")
+    assert peer[0].host == "pinned.test"
+    assert peer[0].port == server.port
 
 
 @pytest.mark.anyio

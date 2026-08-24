@@ -28,7 +28,7 @@ import anyio.from_thread
 import urllib3.util.connection
 from httpcore._backends.anyio import AnyIOBackend
 
-from ssrfguard import Policy
+from ssrfguard import Observer, Policy
 from ssrfguard.httpx import AsyncClient, Client
 from ssrfguard.requests import Session
 
@@ -71,7 +71,10 @@ class Adapter:
 
 @contextmanager
 def _requests_client(
-    policy: Policy, resolver: Resolver, trust: Trust | None = None
+    policy: Policy,
+    resolver: Resolver,
+    trust: Trust | None = None,
+    observer: Observer | None = None,
 ) -> Generator[Session, None, None]:
     """Open a guarded requests session.
 
@@ -79,11 +82,12 @@ def _requests_client(
         policy: What it is willing to reach.
         resolver: A stand-in for ``socket.getaddrinfo``.
         trust: A throwaway authority to trust, if the test needs TLS.
+        observer: Where to report every decision, if the test is watching them.
 
     Yields:
         The session.
     """
-    with Session(policy=policy, resolver=resolver) as session:
+    with Session(policy=policy, resolver=resolver, observer=observer) as session:
         if trust is not None:
             session.verify = trust.path
         yield session
@@ -91,7 +95,10 @@ def _requests_client(
 
 @contextmanager
 def _httpx_client(
-    policy: Policy, resolver: Resolver, trust: Trust | None = None
+    policy: Policy,
+    resolver: Resolver,
+    trust: Trust | None = None,
+    observer: Observer | None = None,
 ) -> Generator[Client, None, None]:
     """Open a guarded httpx client.
 
@@ -99,12 +106,13 @@ def _httpx_client(
         policy: What it is willing to reach.
         resolver: A stand-in for ``socket.getaddrinfo``.
         trust: A throwaway authority to trust, if the test needs TLS.
+        observer: Where to report every decision, if the test is watching them.
 
     Yields:
         The client.
     """
     extra = {} if trust is None else {"verify": trust.context}
-    with Client(policy=policy, resolver=resolver, **extra) as client:
+    with Client(policy=policy, resolver=resolver, observer=observer, **extra) as client:
         yield client
 
 
@@ -165,7 +173,10 @@ class Portalled:
 
 @contextmanager
 def _async_client(
-    policy: Policy, resolver: Resolver, trust: Trust | None = None
+    policy: Policy,
+    resolver: Resolver,
+    trust: Trust | None = None,
+    observer: Observer | None = None,
 ) -> Generator[Portalled, None, None]:
     """Open a guarded async client and a loop to drive it from.
 
@@ -173,13 +184,14 @@ def _async_client(
         policy: What it is willing to reach.
         resolver: A stand-in for ``socket.getaddrinfo``.
         trust: A throwaway authority to trust, if the test needs TLS.
+        observer: Where to report every decision, if the test is watching them.
 
     Yields:
         The client, wrapped so synchronous code can call it.
     """
     extra = {} if trust is None else {"verify": trust.context}
     with anyio.from_thread.start_blocking_portal() as portal:
-        client = AsyncClient(policy=policy, resolver=resolver, **extra)
+        client = AsyncClient(policy=policy, resolver=resolver, observer=observer, **extra)
         try:
             yield Portalled(client, portal)
         finally:

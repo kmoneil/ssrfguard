@@ -30,6 +30,7 @@ import requests
 from ssrfguard import (
     BlockedAddressError,
     BlockedURLError,
+    Decision,
     Policy,
     TooManyRedirectsError,
 )
@@ -423,3 +424,77 @@ def test_a_redirect_comes_back_unfollowed_when_the_cap_permits_one(
 
     assert response.status_code == 302  # type: ignore[attr-defined]
     assert [r.path for r in first.received] == ["/hop0"], "the hop must not have been sent"
+
+
+class Recording:
+    """An observer that keeps every decision it is handed."""
+
+    def __init__(self) -> None:
+        self.seen: list[Decision] = []
+
+    def __call__(self, decision: Decision) -> None:
+        self.seen.append(decision)
+
+
+def test_a_cut_chain_is_reported_with_the_hops_it_walked(
+    adapter: Adapter, first: RecordingServer
+) -> None:
+    """**The fourth stage, and the only one that names no address.**
+
+    A chain that ran out of hops is the shape of a redirect loop somebody is driving, and the
+    hops are the evidence. Asserted on all three surfaces because each counts the chain in its
+    own code: httpx from ``response.history``, requests by catching its own exception.
+    """
+    sink = Recording()
+    policy = policy_for(first, max_redirects=2)
+    # **Distinct hops, not a self-redirect.** A chain that points at itself makes every index
+    # into it the same string, so an off-by-one in which hop the record names is invisible.
+    # Mutation testing found that: `chain[-1]`, `chain[-2]` and `chain[+1]` were interchangeable.
+    for step, following in ((1, 2), (2, 3), (3, 4)):
+        first.routes[f"/hop{step}"] = (
+            302,
+            {"Location": f"http://first.test:{first.port}/hop{following}"},
+            b"",
+        )
+
+    with (
+        adapter.opened(policy, names(), None, sink) as client,
+        pytest.raises(TooManyRedirectsError),
+    ):
+        adapter.fetch(client, f"http://first.test:{first.port}/hop1")
+
+    cut = [decision for decision in sink.seen if decision.stage == "redirect"]
+    assert [decision.outcome for decision in cut] == ["refused"], (
+        f"{adapter.name} reported {len(cut)} redirect decisions rather than one"
+    )
+    assert "max_redirects=2" in (cut[0].reason or "")
+    assert len(cut[0].chain) > policy.max_redirects
+    assert all(hop.startswith("http://first.test:") for hop in cut[0].chain)
+    # **The hop that was refused, which is the last one, not the first.** An off-by-one here
+    # names a URL that was permitted and followed, which is the opposite of what happened.
+    assert cut[0].url == cut[0].chain[-1]
+    assert cut[0].url == f"http://first.test:{first.port}/hop3", (
+        f"{adapter.name} named {cut[0].url}, which is not the hop that was refused"
+    )
+    assert cut[0].chain[0] == f"http://first.test:{first.port}/hop1"
+
+
+def test_a_cut_chain_never_reports_the_credentials_it_carried(
+    adapter: Adapter, first: RecordingServer
+) -> None:
+    """A chain is a list of URLs, and a URL is where credentials hide."""
+    sink = Recording()
+    policy = policy_for(first, max_redirects=1, allow_userinfo=True)
+    target = f"http://user:hunter2@first.test:{first.port}/loop"  # pragma: allowlist secret
+    first.routes["/loop"] = (302, {"Location": target}, b"")
+
+    with (
+        adapter.opened(policy, names(), None, sink) as client,
+        pytest.raises(TooManyRedirectsError),
+    ):
+        adapter.fetch(client, target)
+
+    assert sink.seen, "nothing was reported, so this asserts nothing"
+    for decision in sink.seen:
+        assert "hunter2" not in (decision.url or "")
+        assert all("hunter2" not in hop for hop in decision.chain)
