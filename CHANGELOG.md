@@ -14,6 +14,17 @@ All notable changes to this project are documented here. The format follows
   sat in the file it pointed at. Found by citing one. The async client is a documented guarantee
   of this package, so its evidence has to be nameable, and the pattern's own self-check now
   carries the case that was broken.
+- **The async overlap test is a rendezvous rather than a stopwatch.** It timed two concurrent
+  lookups and required them to finish inside 1.8 stalls, which measured the runner as much as the
+  code: it went red on a macOS CI
+  runner against a change to one script that cannot touch async resolution at all. The property
+  it was reaching for is that two lookups are in flight *at the same time*, which is scheduling
+  rather than duration. A `threading.Barrier` of two parties states it directly, so reaching the
+  assertions is itself the result and a serialised implementation cannot get there. It is now
+  named `test_two_lookups_are_in_flight_at_the_same_time`, it carries no clock, and it is a
+  stronger claim than the one it replaces: overlap is observed rather than inferred from a
+  number consistent with it. Checked both ways, with `resolver_slots=1` forcing the serialisation
+  it guards against, and stressed twenty times against eight busy cores.
 
 ### Added
 
