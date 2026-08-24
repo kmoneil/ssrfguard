@@ -60,12 +60,20 @@ These are scope decisions with reasons, not deflections.
 - **Application logic that constructs the URL.** If a program interpolates attacker input into
   a hostname and then asks us to fetch a host that is on the allowlist for the wrong reason, the
   bug is upstream of this library. What *is* ours is everything from the URL inwards.
-- **Unbounded DNS resolution time, on the synchronous path.** `socket.getaddrinfo` has no
+- **Unbounded DNS resolution time, with the default resolver.** `socket.getaddrinfo` has no
   timeout and `socket.setdefaulttimeout` does not apply to it, so a hostile authoritative server
-  can stall a lookup. On the synchronous clients this is a known denial-of-service surface rather
-  than something fixed, because fixing it inside the standard library means a thread that may
-  leak, and it is the caller's to supervise. A report of a *new* unbounded path is in scope; this
-  one is known.
+  can stall a lookup. That is a property of the platform's resolver rather than of this package,
+  and the platform's resolver is the default because of what it knows: `/etc/hosts`,
+  `nsswitch.conf`, search domains, and on macOS the system configuration.
+
+  **It is no longer the only choice.** `ssrfguard.resolvers.UdpResolver` speaks DNS over a socket
+  this package owns, so one lookup returns inside its `timeout` whatever the far end does, on
+  both the synchronous and the asynchronous clients. A deployment that would rather have the
+  ceiling than those files can have the ceiling, in one constructor argument and with no other
+  change. See [`docs/resolvers.md`](docs/resolvers.md).
+
+  A report of a *new* unbounded path is in scope. The default resolver's is known, is documented,
+  and has an answer that ships.
 
   **The exception is this one lookup, and the rest of the path is bounded on purpose.**
   Connection attempts are not a second instance of it: the connect timeout is per attempt, so a
@@ -103,7 +111,11 @@ These are scope decisions with reasons, not deflections.
 
   **What that leaves is a bound, and the bound is documented rather than in scope.** A thread
   blocked in `getaddrinfo` cannot be cancelled, so held lookups accumulate until the client's
-  `resolver_slots` are gone, and past that point a new *name* waits. Connections already open are
+  `resolver_slots` are gone, and past that point a new *name* waits. **`UdpResolver` shortens the
+  hold without removing it**: the thread is released when its deadline passes rather than when
+  the platform decides, so lookups are held for a bounded time instead of an unbounded one. The
+  thread still cannot be *cancelled*, because the client offloads a synchronous call rather than
+  awaiting an asynchronous one, and changing that is a change to the client. Connections already open are
   unaffected, which is what keeps this a limit rather than an outage, and the pool is the
   client's own rather than a process-wide default, so a stall cannot starve unrelated thread
   work elsewhere on the event loop. A held lookup blocking a request over an already-open
