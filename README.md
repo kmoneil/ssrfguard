@@ -207,20 +207,26 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**0.1.0, the first release.** The address table, the policy layer, resolution, the connection
-layer and all three client surfaces are built. The central claim is demonstrated rather than
-argued: a DNS server on loopback moves a record between the validation call and the connect
-call, and the connection lands on the address that was validated.
+**0.2.0.** The address table, the policy layer, resolution, the connection layer and all three
+client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
+loopback moves a record between the validation call and the connect call, and the connection
+lands on the address that was validated.
 
-**There is still no maturity label, and that is now a decision rather than a deferral.** The
-package carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
+**0.2.0 adds two things and takes nothing away**, both opt-in, both leaving the defaults where
+they were. [`UdpResolver`](docs/resolvers.md) gives a lookup a deadline, which `getaddrinfo`
+cannot be given, and closes the denial-of-service surface `SECURITY.md` used to document as
+simply known. [An observer](docs/observing.md) makes every permit and refusal something a caller
+can see, where before a decision survived only by being raised and only if nobody caught it.
+
+**There is still no maturity label, and that is a decision rather than a deferral.** The package
+carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
 withholding; the proof exists, so keeping it would have asserted a maturity rather than withheld
 one. Promoting it to `4 - Beta` would swap one unearned claim for another. What is true instead
-is measurable and is on this page: 758 tests, 100% branch coverage, ten gating lanes, a mutation
-register the suite is held against, and no independent audit. A reader can weigh those. A
-one-word classifier only asks them to take our word for something.
+is measurable and is on this page: 1001 tests, 100% branch coverage, ten gating lanes, a mutation
+register of 156 survivors the suite is held against, and **no independent audit**. A reader can
+weigh those. A one-word classifier only asks them to take our word for something.
 
-**0.1.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
+**0.2.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
 the number is about what we are willing to promise not to change.
 [`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
