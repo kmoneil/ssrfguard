@@ -479,6 +479,14 @@ markers = [
   # suite rather than a wall of red, and gated in CI by a step that fails rather than skips.
   "egress: reaches the public internet",
   "slow: builds a distribution; seconds rather than milliseconds",
+  # **Reads the repository rather than the library.** These assert things about the tree: that a
+  # lane is invoked, that a link resolves, that an example runs, that a classifier agrees with a
+  # matrix. `mutmut` copies `src`, `tests` and two files into `mutants/` and runs the suite from
+  # there, where `scripts/`, `docs/`, `examples/` and `.github/` do not exist, so three of them
+  # fail to import and three fail at the first path they open. None of them could kill a mutant
+  # in `src/ssrfguard` either way, which is why deselecting them costs nothing and is the whole
+  # reason the mutation lane can run at all.
+  "repository: asserts something about this tree, not about the library",
 ]
 
 # ---------------------------------------------------------------------------
@@ -492,5 +500,21 @@ exclude = ["tests", ".venv", "**/__pycache__"]
 typeCheckingMode = "standard"
 
 [tool.mutmut]
-paths_to_mutate = ["src/ssrfguard"]
-tests_dir = ["tests"]
+# **Both keys here were the deprecated spellings** until 3.7 said so out loud on every
+# invocation: `paths_to_mutate` is now `source_paths`, and `tests_dir` is now folded into
+# `pytest_add_cli_args_test_selection`. A warning printed by a lane that reports and does not
+# gate is a warning nobody reads, which is how they survived.
+source_paths = ["src/ssrfguard"]
+# **`scripts/` is copied so three modules can import, not so they can run.** `mutmut` builds
+# `mutants/` from `source_paths` plus the tests and two files, then runs pytest from inside it.
+# `test_lanes`, `test_packaging` and `test_registry_generator` import `lanes` and
+# `refresh_registry` from `scripts/`, and a module that fails to *import* errors during
+# collection, which is before `-m` gets a say. So the deselection below cannot reach them and
+# the whole lane died on the first of the three, every time, for the life of this project.
+also_copy = ["scripts"]
+# **`repository` and `egress` are both deselected, for different reasons.** A `repository` test
+# cannot run inside the copied tree at all; see the marker's own note. An `egress` test reaches
+# the public internet, and running the network once per mutant is a way to be rate-limited
+# rather than a way to learn anything, since the mutants are in address logic that the loopback
+# tests already exercise.
+pytest_add_cli_args_test_selection = ["tests", "-m", "not repository and not egress"]
