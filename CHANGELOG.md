@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- **`_normalise` catches `ValueError` rather than `(UnicodeError, ValueError)`.** `UnicodeError`
+  is a subclass of `ValueError`, so the pair caught nothing the broader name did not and only
+  read as though it did. The narrower name is the one removed, deliberately: narrowing the other
+  way would turn a codec raising anything but a `UnicodeError` into an unhandled crash in the
+  middle of a guard, where today it is a refusal that names the host. Nothing in CPython takes
+  that path, which is why `test_a_codec_failure_that_is_not_a_unicode_error_is_still_a_refusal`
+  exists to hold it. That test drives the failure through a `str` subclass rather than a patched
+  `encodings.idna.Codec`, because `codecs` caches a *bound* method on first use: the patched form
+  passes alone and passes **vacuously** in a suite where anything encoded first.
+- **Three type-checker suppressions, none of which changes a runtime path.** pyright reports ten
+  errors that mypy `--strict` does not, and all ten are the checker or its stubs rather than this
+  code. `setsockopt(*option)` in `_connect._open` and `AsyncSafeBackend.connect_tcp` unpacks a
+  union of tuple shapes, which pyright cannot follow: it joins the element types across positions
+  and then calls every argument wrong. httpcore carries the same pattern in its own backends. A
+  length dispatch would satisfy pyright without a suppression and was rejected, because unpacking
+  is what keeps the value whole: a 5-tuple raises `TypeError` today and a dispatch on `len` would
+  silently apply the first three elements and drop the rest, which is the failure the
+  `SocketOption` note already warns about. `ConnectionCls` in `requests._pool_classes` is
+  urllib3's own defect, reproduced exactly by assigning urllib3's unmodified `HTTPConnection` to
+  it. All three are spelled `pyright:` rather than `type:`, because mypy is right about these
+  lines and an ignore it cannot use would fail `warn_unused_ignores` under strict.
+
 ## 0.1.0 - 2026-08-24
 
 ### Added

@@ -239,15 +239,22 @@ def _pool_classes(policy: Policy, resolver: Resolver | None) -> dict[str, type[H
                 resolver=resolver,
             )
 
+    # **The two suppressions below are urllib3's own defect, not this subclass's.** `ConnectionCls`
+    # is declared as the `BaseHTTPConnection` / `BaseHTTPSConnection` protocol, and urllib3's own
+    # concrete `HTTPConnection` does not satisfy it under pyright either: `host` is a property
+    # where the protocol wants a mutable `str`, and `assert_hostname` widens to `bool`. Assigning
+    # urllib3's unmodified classes here reproduces both errors exactly, so there is nothing to fix
+    # on this side. Spelled `pyright:` rather than `type:` deliberately -- mypy is right about
+    # this line, and a `type: ignore` it cannot use would fail `warn_unused_ignores` under strict.
     class PinnedHTTPConnectionPool(HTTPConnectionPool):
         """A pool whose connections pin."""
 
-        ConnectionCls = PinnedHTTPConnection
+        ConnectionCls = PinnedHTTPConnection  # pyright: ignore[reportAssignmentType]
 
     class PinnedHTTPSConnectionPool(HTTPSConnectionPool):
         """A TLS pool whose connections pin."""
 
-        ConnectionCls = PinnedHTTPSConnection
+        ConnectionCls = PinnedHTTPSConnection  # pyright: ignore[reportAssignmentType]
 
     return {"http": PinnedHTTPConnectionPool, "https": PinnedHTTPSConnectionPool}
 
