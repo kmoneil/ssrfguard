@@ -104,6 +104,7 @@ task rather than by module.
 | [Errors](docs/errors.md)                             | The hierarchy, what each carries, how to handle them, and what is deliberately not wrapped                                 |
 | [Using the pieces directly](docs/building-blocks.md) | `check_url` / `resolve` / `connect` for a protocol this package ships no client for, including the correct TLS wrap        |
 | [The address table](docs/address-table.md)           | What is in it, how a wrapper is decoded, building your own, and every place it departs from IANA                           |
+| [Resolvers](docs/resolvers.md)                       | `getaddrinfo` has no timeout; a resolver that does, what it does not know in exchange, and why half an answer is refused |
 | [What it costs](docs/cost.md)                        | The measured numbers, the shape that matters more, and what is not bounded                                                 |
 | [Why this exists](docs/architecture.md)              | The bug, the fix, and the failures this prevents with the test that proves each one                                        |
 | [Threat model](docs/threat-model.md)                 | What an attacker controls, what meets each capability, and the residual risk stated in detail                              |
