@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **The promise is written down: this guards the connection, and the fetch around it is not
+  ours.** `SECURITY.md` gains a section saying so with a table of each side, and naming the
+  alternative that was rejected, because a boundary reads as arbitrary without the thing it was
+  chosen over.
+
+  Two open questions fell out of it at once and both fell against the way they had been leaning:
+  a response-size ceiling stays out, and a detector for the bug this package prevents stays a
+  different product. The argument for each was good in isolation and neither survived being asked
+  what the package is. "We safely fetch an untrusted URL" has no edge: everything a fetch touches
+  becomes in scope, and the first casualty is the structural claim on the front of the README.
+
+  **Fenced rather than merely stated.** `tests/test_scope.py` fails if a `Policy` field, a client
+  argument or an exported name grows the vocabulary of a response, if `pyproject.toml` declares a
+  console script, or if the sentence leaves `SECURITY.md`. Each of the three was checked by
+  making it fail. A boundary nothing checks is a boundary that moves one convenient argument at a
+  time, and every one of those arguments is individually reasonable.
+
+
 - **`RebindingWatch`: noticing that a name moved, not just surviving it.** The pin already means
   a moved record cannot move the connection, and that is silent by construction: an attacker
   points a name at a public address, waits for the lookup, moves it to `169.254.169.254`, and the
