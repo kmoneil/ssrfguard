@@ -8,7 +8,7 @@ detail, what is still not defended.
 The last section is the point. A threat model that lists only what a package stops is marketing
 with a table in it.
 
-Written against **0.2.0**. `SECURITY.md` carries the reporting process and the scope of what we
+Written against **0.3.0**. `SECURITY.md` carries the reporting process and the scope of what we
 will treat as a vulnerability; this carries the reasoning behind it.
 
 ## The asset
