@@ -106,6 +106,7 @@ task rather than by module.
 | [The address table](docs/address-table.md)           | What is in it, how a wrapper is decoded, building your own, and every place it departs from IANA                           |
 | [What it costs](docs/cost.md)                        | The measured numbers, the shape that matters more, and what is not bounded                                                 |
 | [Why this exists](docs/architecture.md)              | The bug, the fix, and the failures this prevents with the test that proves each one                                        |
+| [Threat model](docs/threat-model.md)                 | What an attacker controls, what meets each capability, and the residual risk stated in detail                              |
 
 ## Examples
 
