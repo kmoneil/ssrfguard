@@ -46,6 +46,14 @@ LOOPBACK = ("127.0.0.0/8",)
 #: alongside it could not possibly have ticked, short enough not to be felt in the suite.
 STALL = 0.2
 
+#: How long a lookup waits for another one to join it before giving up.
+#:
+#: **This bounds a failure and is not a threshold.** Nothing passes because this number is large
+#: enough; a passing run returns the instant the second lookup arrives, however slow the machine.
+#: All it decides is how long a *broken* run takes to say so, which is why it can be generous
+#: without being a judgement about anybody's runner.
+RENDEZVOUS_DEADLINE = 10.0
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -102,6 +110,58 @@ class Stalling(Resolver):
         return super().__call__(host, port, *args)
 
 
+class Rendezvous(Resolver):
+    """A resolver that cannot answer until a second lookup is in flight beside it.
+
+    **This replaces a stopwatch, and it is a stronger claim rather than a weaker one.** Timing
+    two concurrent lookups and asserting they finished in less than both stalls end to end infers
+    overlap from duration. A barrier observes it: two parties only pass when two threads are
+    inside at once, so a run that gets through has *proved* the lookups were simultaneous rather
+    than shown a number consistent with it.
+
+    It also cannot flake. The old assertion had 1.8x of headroom on shared CI and went red on a
+    macOS runner against a branch that changed one script and could not touch async resolution
+    at all. **A clock in a gate measures the runner as much as the code**, which is why the cost
+    gates in this suite are call counts and ratios measured in one run rather than durations;
+    ``tests/test_cost.py`` is where that reasoning is written out.
+    """
+
+    def __init__(self, parties: int, **answers: str | list[str]) -> None:
+        """Build the resolver.
+
+        Args:
+            parties: How many lookups must be in flight before any of them may answer.
+            **answers: Host to address, as :class:`Resolver` takes them.
+        """
+        super().__init__(**answers)
+        self.barrier = threading.Barrier(parties, timeout=RENDEZVOUS_DEADLINE)
+
+    def __call__(self, host: str, port: int, *args: object) -> list[tuple]:
+        """Answer, once somebody else is here too.
+
+        Args:
+            host: The name to look up.
+            port: The port.
+            *args: The rest of ``getaddrinfo``'s signature.
+
+        Returns:
+            The answer.
+
+        Raises:
+            AssertionError: If no other lookup arrived. Raised here rather than left as a bare
+                ``BrokenBarrierError`` so the failure names what it means, since a barrier
+                timing out is not self-explanatory at the far end of an event loop.
+        """
+        try:
+            self.barrier.wait()
+        except threading.BrokenBarrierError:
+            raise AssertionError(
+                f"the lookup for {host!r} waited {RENDEZVOUS_DEADLINE}s and no second lookup "
+                f"joined it, so resolution is serialised rather than run off the loop"
+            ) from None
+        return super().__call__(host, port, *args)
+
+
 @pytest.mark.anyio
 async def test_a_stalled_lookup_does_not_stall_the_loop(server: RecordingServer) -> None:
     """Resolving off the loop, measured, which is what separates having thought about it from
@@ -137,29 +197,32 @@ async def test_a_stalled_lookup_does_not_stall_the_loop(server: RecordingServer)
 
 
 @pytest.mark.anyio
-async def test_two_stalled_lookups_overlap(server: RecordingServer) -> None:
-    """Off the loop is not the same as one at a time, and the difference is measurable.
+async def test_two_lookups_are_in_flight_at_the_same_time(server: RecordingServer) -> None:
+    """Off the loop is not the same as one at a time, and the difference is observable.
 
-    Two requests to two names, each stalling for the same fifth of a second. Run concurrently
-    they should finish in about one stall rather than two, because both waits are in threads.
+    Two requests to two names. Neither resolver call may return until the other one has started,
+    so **reaching the assertions at all is the result**: a serialised implementation cannot get
+    here, because the first lookup would still be waiting for a second that has not begun.
+
+    This used to time the pair and require them to finish inside 1.8 stalls. That measured the
+    runner as much as the code and flaked on macOS. What it was reaching for is a property of
+    scheduling rather than of duration, and a barrier states it directly.
     """
     policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
-    resolver = Stalling(**{"one.test": "127.0.0.1", "two.test": "127.0.0.1"})
+    resolver = Rendezvous(2, **{"one.test": "127.0.0.1", "two.test": "127.0.0.1"})
 
-    started = time.monotonic()
     async with (
         AsyncClient(policy=policy, resolver=resolver) as client,
         anyio.create_task_group() as tasks,
     ):
         tasks.start_soon(client.get, f"http://one.test:{server.port}/a")
         tasks.start_soon(client.get, f"http://two.test:{server.port}/b")
-    elapsed = time.monotonic() - started
 
     assert sorted(resolver.asked) == ["one.test", "two.test"]
-    assert elapsed < STALL * 1.8, (
-        f"two lookups took {elapsed:.2f}s, which is both of them end to end; they are being "
-        f"serialised rather than run off the loop"
-    )
+    assert [request.path for request in sorted(server.received, key=lambda r: r.path)] == [
+        "/a",
+        "/b",
+    ]
 
 
 @pytest.mark.anyio
