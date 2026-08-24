@@ -115,8 +115,12 @@ These are scope decisions with reasons, not deflections.
 
 ## Supported versions
 
-There is no release yet, so nothing is supported yet. When there is one, the latest is the only
-one supported, and this section becomes a table when there is something to put in it.
+| Version | Supported |
+| ------- | --------- |
+| 0.1.x   | Yes       |
+
+Only the latest release is supported. A fix goes into a new version rather than back into an old
+one, which is what a single maintainer can actually promise and keep.
 
 Python 3.10 and newer. A report against an interpreter below the floor is out of scope. Not
 because old interpreters do not matter, but because this project cannot type-check or fully test

@@ -58,8 +58,12 @@ classifiers = [
   # one. Which is the failure this omission avoids: a label whose stated condition was met and
   # which nobody moved.
   #
-  # The first release picks one, and picking it is part of what that release decides. Said the
-  # same way in README "Status" and in SECURITY.md's support window, so all three move together.
+  # **0.1.0 shipped without one, and that was the decision rather than a deferral.** `4 - Beta`
+  # would have swapped one unearned claim for another. What this package can say instead is
+  # measurable and is in README "Status": the test count, the coverage, the gating lanes, the
+  # mutation register, and the absence of an independent audit. A reader can weigh those; a
+  # one-word classifier only asks them to take our word for it. Said the same way in README
+  # "Status" and in SECURITY.md's support window, so all three move together.
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
