@@ -18,6 +18,7 @@ from ssrfguard import (
     BlockedURLError,
     Policy,
     Reach,
+    _policy,
 )
 from ssrfguard._registry import TABLE
 
@@ -164,6 +165,46 @@ def test_a_name_the_resolver_could_not_encode_is_refused_with_the_codec_error() 
     with pytest.raises(BlockedURLError, match="is not a usable name") as caught:
         policy.check_url(f"http://{too_long}/")
     assert "too long" in caught.value.reason
+
+
+class _HostWhoseCodecFailsPlainly(str):
+    """A host whose ``encode`` raises a `ValueError` that is not a `UnicodeError`.
+
+    A subclass rather than a patched codec on purpose. ``codecs`` caches a *bound* method for
+    ``idna`` on first use, so patching `encodings.idna.Codec.encode` only takes effect when
+    nothing has encoded yet, which makes such a test pass alone and pass vacuously in a suite.
+    Overriding the method that `_normalise` actually calls has no such ordering.
+    """
+
+    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+        """Fail the way the handler has to keep tolerating.
+
+        Args:
+            encoding: Ignored; the failure is the point.
+            errors: Ignored.
+
+        Raises:
+            ValueError: Always, and deliberately not a `UnicodeError`.
+        """
+        raise ValueError("not unicode")
+
+
+def test_a_codec_failure_that_is_not_a_unicode_error_is_still_a_refusal() -> None:
+    """The handler catches `ValueError`, not just the `UnicodeError` the codec raises today.
+
+    `UnicodeError` is a subclass of `ValueError`, so naming both was redundant and the narrower
+    name was the one removed. This pins the direction that removal has to preserve: the handler
+    must stay `ValueError`, because narrowing it to `UnicodeError` would turn a codec raising
+    anything else into an unhandled crash in the middle of a guard, where today it is a refusal.
+    Nothing in CPython takes that path right now, which is exactly why only a test holds it.
+    """
+    host = _HostWhoseCodecFailsPlainly("ünicode.example")
+    assert not isinstance(ValueError("x"), UnicodeError), "the subclassing runs the other way"
+
+    with pytest.raises(BlockedURLError, match="is not a usable name") as caught:
+        _policy._normalise(f"http://{host}/", host)  # noqa: SLF001
+
+    assert "not unicode" in caught.value.reason
 
 
 @pytest.mark.parametrize(
