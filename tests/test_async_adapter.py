@@ -246,7 +246,12 @@ async def test_a_prebuilt_async_transport_carries_its_own_policy(server: Recordi
 @pytest.mark.anyio
 async def test_socket_options_reach_the_connection(server: RecordingServer) -> None:
     """httpx callers set these and expect them to arrive; a guarded path that dropped them
-    silently would be a behaviour change nobody could attribute."""
+    silently would be a behaviour change nobody could attribute.
+
+    Nonzero rather than 1, for the reason `tests/test_connect.py` gives: "set" is a kernel's own
+    bit pattern, 1 on Linux and 8 for `SO_KEEPALIVE` on macOS, and this asserts the option landed
+    rather than which platform ran the test.
+    """
     policy = Policy(allowed_ports=frozenset({server.port}), allowed_networks=LOOPBACK)
     backend = AsyncSafeBackend(policy=policy, resolver=Resolver(**{"pinned.test": "127.0.0.1"}))
 
@@ -257,7 +262,7 @@ async def test_socket_options_reach_the_connection(server: RecordingServer) -> N
     )
     try:
         raw = stream.get_extra_info("socket")
-        assert raw.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) == 1
+        assert raw.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
     finally:
         await stream.aclose()
 

@@ -165,13 +165,19 @@ def test_connect_performs_no_name_resolution(listener: tuple[str, int]) -> None:
 
 
 def test_socket_options_are_applied(listener: tuple[str, int]) -> None:
-    """The adapters pass these through; dropping them silently changes connection behaviour."""
+    """The adapters pass these through; dropping them silently changes connection behaviour.
+
+    **Nonzero rather than 1.** A boolean socket option reads back as set or unset, and what a
+    kernel puts in the buffer for "set" is its own business: Linux returns 1 and macOS returns
+    the flag's own bit, 4 here. Asserting the value asserted the platform, and `SO_REUSEADDR`
+    below already had this right.
+    """
     host, port = listener
     options = [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)]
     with connect(
         [address_for(host, port)], policy=LOOPBACK_OK, timeout=5, socket_options=options
     ) as sock:
-        assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+        assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) != 0
 
 
 def test_a_socket_option_carrying_bytes_is_applied_too(listener: tuple[str, int]) -> None:
