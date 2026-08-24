@@ -8,6 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`RebindingWatch`: noticing that a name moved, not just surviving it.** The pin already means
+  a moved record cannot move the connection, and that is silent by construction: an attacker
+  points a name at a public address, waits for the lookup, moves it to `169.254.169.254`, and the
+  only trace is that nothing went wrong. `on_partial_block` catches the version of this that
+  happens inside one lookup; across two lookups the signal is identical and nothing remembered
+  the first answer.
+
+  It is an observer that wraps an observer, so there is no new plumbing anywhere: it watches
+  address decisions go past, remembers the permitted ones per host, and fills in
+  `Decision.also_seen` when a refusal arrives for a host with others on file.
+
+  **It detects and does not enforce**, which is what makes its limit acceptable: it cannot see a
+  name that is only ever resolved once, because a pooled second request does not re-resolve. It
+  is not a reason to relax `on_partial_block`. It is bounded on purpose, since the keys are
+  hostnames an attacker chooses, and it is **not a cache**: what it stores is compared, never
+  reused, because handing back a remembered answer would be a stale pin.
+  [`docs/observing.md`](docs/observing.md) has the limits written out.
+
+
 - **`Policy(allowed_hosts=...)`: reaching only what you meant to.** The policy could narrow
   schemes, ports, networks and userinfo, and there was no way to say "only `api.stripe.com` and
   `*.githubusercontent.com`". The workaround was `allowed_networks`, which is the wrong control
