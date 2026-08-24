@@ -171,7 +171,7 @@ jobs:
         run: |
           set -euo pipefail
           uv tool run --from cyclonedx-bom cyclonedx-py environment \
-            --output-format json --outfile dist/ssrfguard.cdx.json \
+            --output-format json --output-file dist/ssrfguard.cdx.json \
             "$(uv run --frozen python -c 'import sys; print(sys.executable)')" || {
               echo "SBOM generation failed" >&2; exit 1;
             }

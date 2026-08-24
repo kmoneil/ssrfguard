@@ -268,6 +268,21 @@ jobs:
       - run: uv python install
       - run: uv sync --frozen --group audit
       - run: uv run --frozen python scripts/lanes.py audit
+      # **The same invocation `release.yml` uses, run where it is cheap to be wrong.**
+      # `cyclonedx-py` takes `--output-file`; the release workflow asked for `--outfile`,
+      # which is not an option it has, and nothing found out until a tag was pushed and
+      # the build job died between `uv build` and the upload. A step that only ever runs
+      # on a tag is a step whose first run is also the one that matters. This lane already
+      # owns the question of what this package's dependency surface contains, and the SBOM
+      # is that answer in another format, so the rehearsal belongs here.
+      - name: rehearse the release SBOM, so a tag is not where the flags get checked
+        run: |
+          set -euo pipefail
+          uv tool run --from cyclonedx-bom cyclonedx-py environment \
+            --output-format json --output-file /tmp/ssrfguard.cdx.json \
+            "$(uv run --frozen python -c 'import sys; print(sys.executable)')"
+          python -c "import json,sys; d=json.load(open('/tmp/ssrfguard.cdx.json')); \
+            sys.exit(0 if d.get('bomFormat')=='CycloneDX' and d.get('components') else 1)"
 
   # ---------------------------------------------------------------------------
   # The unit suite again with the socket and file-descriptor leak check armed.
