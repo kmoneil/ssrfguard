@@ -108,6 +108,53 @@ than parsed, so it runs on URLs no parser accepts, which is exactly where a refu
 default. That is a guarantee rather than an implementation detail, and it is gated by counting
 constructions rather than by timing anything.
 
+## Noticing that a name moved
+
+`on_partial_block` refuses a name that resolves to both permitted and denied addresses **within
+one lookup**, because that is the signature of a rebinding attempt rather than of a
+misconfiguration. Across two lookups the signal is identical, and nothing remembered the first
+answer to notice it.
+
+`RebindingWatch` wraps an observer and remembers, per host, the permitted addresses it has seen.
+When a refusal arrives for a host with others on file, it fills in `Decision.also_seen`:
+
+```python
+from ssrfguard import Policy, RebindingWatch
+from ssrfguard.httpx import Client
+
+with Client(policy=Policy(), observer=RebindingWatch(watch)) as client:
+    ...
+```
+
+```
+address refused 169.254.169.254  also_seen=('93.184.216.34',)
+```
+
+**It detects; it does not enforce.** The refusal already happened, correctly, by the address
+table, and nothing here changes what connects. That is what makes the limitation below a limit on
+visibility rather than a hole.
+
+**It cannot see a name that is only ever resolved once.** A pooled second request does not
+re-resolve, so a fetcher that visits an attacker's URL a single time gives this nothing to
+compare. It fires on retries, on redirect chains that revisit a host, on pool churn, and on a
+name that resolves both ways within one lookup. **It is not a reason to relax
+`on_partial_block`**, which is the control that catches the single-lookup case and refuses it.
+
+**It is not a cache and must never become one.** What it stores is compared, never reused.
+Handing a remembered answer to a connection would be a stale pin: a name that legitimately moved
+keeps reaching an address it no longer owns, which is the mirror image of the bug this package
+exists to prevent.
+
+**It is bounded, and the bound is the point.** The keys are hostnames an attacker chooses, so an
+unbounded map here would be a memory-exhaustion path. `window` (60 seconds) is how long a
+sighting stays comparable, and `capacity` (512) is how many hosts are remembered, oldest evicted
+first. A name that pointed somewhere else an hour ago is a re-provisioning, not a rebind.
+
+What must **not** produce a finding, and is asserted: a round-robin name, a DNS-based failover
+between two permitted addresses, and a name seen only once. A detector that fires on normal
+operation gets switched off, and a detector that is switched off is worse than none, because
+somebody believes it is running.
+
 ## Handing it to logging
 
 `Decision` is a record rather than a formatted string on purpose: a library that picks a logger
