@@ -6,7 +6,7 @@ Every other SSRF guard in Python validates a hostname and then hands the URL to 
 that resolves DNS a second time. The attacker moves the record in between. This one resolves
 once, validates every answer, and connects to that address, never to a name.
 
-[![Status](https://img.shields.io/badge/status-unreleased-lightgrey)](#status)
+[![PyPI](https://img.shields.io/pypi/v/ssrfguard)](https://pypi.org/project/ssrfguard/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#requirements)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](#why-zero-dependencies)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -15,8 +15,8 @@ once, validates every answer, and connects to that address, never to a name.
 pip install "ssrfguard[httpx]"      # or ssrfguard[requests], or both
 ```
 
-**Not on PyPI yet.** That line is what it will be; today the way in is a clone, and
-[Examples](#examples) has the two commands. [Status](#status) says what is and is not done.
+[Status](#status) says what is and is not done, and [`CHANGELOG.md`](CHANGELOG.md) says what has
+moved. [Examples](#examples) has the two commands for running the nine examples from a clone.
 
 ```python
 from ssrfguard import Policy
@@ -204,16 +204,21 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**Unreleased.** The address table, the policy layer, resolution, the connection layer and all
-three client surfaces are built. The central claim is demonstrated rather than argued: a DNS
-server on loopback moves a record between the validation call and the connect call, and the
-connection lands on the address that was validated.
+**0.1.0, the first release.** The address table, the policy layer, resolution, the connection
+layer and all three client surfaces are built. The central claim is demonstrated rather than
+argued: a DNS server on loopback moves a record between the validation call and the connect
+call, and the connection lands on the address that was validated.
 
-**There is no maturity label and no version.** The package carried `3 - Alpha` while the
-rebinding proof was missing, which was the one claim worth withholding, and that proof now
-exists. Alpha would therefore be asserting a maturity rather than withholding one, about
-something nobody can install: version 0.0.0, no tag, nothing on PyPI. The first release picks a
-`Development Status` classifier, and until then this section is the whole of the answer.
+**There is still no maturity label, and that is now a decision rather than a deferral.** The
+package carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
+withholding; the proof exists, so keeping it would have asserted a maturity rather than withheld
+one. Promoting it to `4 - Beta` would swap one unearned claim for another. What is true instead
+is measurable and is on this page: 758 tests, 100% branch coverage, ten gating lanes, a mutation
+register the suite is held against, and no independent audit. A reader can weigh those. A
+one-word classifier only asks them to take our word for something.
+
+**0.1.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
+the number is about what we are willing to promise not to change.
 [`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
 ## How this was built
