@@ -207,26 +207,36 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**0.2.0.** The address table, the policy layer, resolution, the connection layer and all three
+**0.3.0.** The address table, the policy layer, resolution, the connection layer and all three
 client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
 loopback moves a record between the validation call and the connect call, and the connection
 lands on the address that was validated.
 
-**0.2.0 adds two things and takes nothing away**, both opt-in, both leaving the defaults where
-they were. [`UdpResolver`](docs/resolvers.md) gives a lookup a deadline, which `getaddrinfo`
-cannot be given, and closes the denial-of-service surface `SECURITY.md` used to document as
-simply known. [An observer](docs/observing.md) makes every permit and refusal something a caller
-can see, where before a decision survived only by being raised and only if nobody caught it.
+**0.2.0 added a lookup with a deadline and an observer.** [`UdpResolver`](docs/resolvers.md)
+gives a lookup a deadline, which `getaddrinfo` cannot be given, and closes the denial-of-service
+surface `SECURITY.md` used to document as simply known. [An observer](docs/observing.md) makes
+every permit and refusal something a caller can see, where before a decision survived only by
+being raised and only if nobody caught it.
+
+**0.3.0 adds the narrowing that was missing and the detection that was silent**, both opt-in,
+both leaving the defaults where they were. [`allowed_hosts`](docs/policy.md) is how a fetcher
+says it only ever talks to two APIs, which is the strongest control here and had no expression
+before. [`RebindingWatch`](docs/observing.md) says when a name resolved somewhere else, which
+this package has always survived and never mentioned.
+
+**And it writes down which promise this package makes.** It guards the connection; the fetch
+around it is not ours. [`SECURITY.md`](SECURITY.md) says so with the alternative it was chosen
+over, and `tests/test_scope.py` fails if the boundary erodes.
 
 **There is still no maturity label, and that is a decision rather than a deferral.** The package
 carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
 withholding; the proof exists, so keeping it would have asserted a maturity rather than withheld
 one. Promoting it to `4 - Beta` would swap one unearned claim for another. What is true instead
-is measurable and is on this page: 1001 tests, 100% branch coverage, ten gating lanes, a mutation
-register of 156 survivors the suite is held against, and **no independent audit**. A reader can
+is measurable and is on this page: 1102 tests, 100% branch coverage, ten gating lanes, a mutation
+register of 166 survivors the suite is held against, and **no independent audit**. A reader can
 weigh those. A one-word classifier only asks them to take our word for something.
 
-**0.2.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
+**0.3.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
 the number is about what we are willing to promise not to change.
 [`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
