@@ -28,7 +28,9 @@ us, and a platform that stopped decoding them would move where the defence comes
 
 from __future__ import annotations
 
+import ipaddress
 import socket
+import sys
 from dataclasses import dataclass
 
 import pytest
@@ -140,6 +142,36 @@ REFUSED_AFTER_NORMALISATION = (
 
 CORPUS = REFUSED_BY_SHAPE + REFUSED_BY_RESOLUTION + REFUSED_AFTER_NORMALISATION
 
+#: Where a platform's resolver disagrees with glibc's, keyed by `sys.platform`.
+#:
+#: **`decodes_to` is a fact about a C library rather than about this package**, which this file's
+#: own opening says, and then the corpus wrote glibc's answers down as though they were
+#: everyone's. macOS does not read `0177.0.0.1`'s leading zero as octal. It strips the zero and
+#: reads decimal, so the form reaches 177.0.0.1: a public address, with nothing wrong with it,
+#: and nothing for the address table to refuse.
+#:
+#: That does not open a hole, and the shape rule is why. `0177.0.0.1` is digits and dots that is
+#: not an address, so `check_url` refuses it before anything is looked up, on every platform.
+#: What it does mean is that this one row has **one** defence on macOS rather than two, and the
+#: point of writing that here is that it is the kind of thing a reader should be able to find
+#: rather than rediscover.
+PLATFORM_DECODES: dict[str, dict[str, str | None]] = {
+    "darwin": {"0177.0.0.1": "177.0.0.1"},
+}
+
+
+def decoded(row: Encoded) -> str | None:
+    """What the resolver on *this* platform makes of a form.
+
+    Args:
+        row: The corpus row.
+
+    Returns:
+        `row.decodes_to`, unless this platform is recorded above as disagreeing.
+    """
+    return PLATFORM_DECODES.get(sys.platform, {}).get(row.written, row.decodes_to)
+
+
 #: Every class this corpus claims to cover. Asserted present, so the corpus is complete rather
 #: than merely long, and so deleting a row is a decision rather than a slip.
 FAMILIES = frozenset(
@@ -189,14 +221,18 @@ def test_the_platform_still_decodes_the_form(row: Encoded) -> None:
     shape rule alone on some rows and from nothing at all on others, so this is pinned rather
     than assumed, the same way the address table is pinned against ``ipaddress``.
     """
+    expected = decoded(row)
     try:
         answers = sorted({str(info[4][0]) for info in socket.getaddrinfo(row.written, 80)})
     except socket.gaierror:
-        assert row.decodes_to is None, (
-            f"{row.written!r} no longer resolves; it used to decode to {row.decodes_to}"
+        assert expected is None, (
+            f"{row.written!r} no longer resolves; it used to decode to {expected}"
         )
         return
-    assert row.decodes_to in answers, f"{row.written!r} now decodes to {answers}"
+    assert expected in answers, (
+        f"{row.written!r} decodes to {answers} on {sys.platform}, not {expected}. If that is a "
+        f"platform difference rather than a regression, PLATFORM_DECODES is where it is recorded"
+    )
 
 
 @pytest.mark.parametrize("row", CORPUS, ids=_ids(CORPUS))
@@ -262,12 +298,24 @@ def test_resolution_refuses_it_even_with_the_shape_rule_bypassed(row: Encoded) -
     refused, by the layer that reads addresses rather than text.
     """
     forged = Target(scheme="http", host=row.written, port=80, host_as_written=row.written)
+    here = decoded(row)
 
-    if row.decodes_to is None:
+    if here is None:
         with pytest.raises(socket.gaierror):
             resolve(forged, policy=POLICY)
         return
 
+    if POLICY.permits_address(ipaddress.ip_address(here)):
+        # This platform decodes the form to somewhere there is no reason to refuse, so the
+        # second defence has nothing to do and the shape rule is the whole of it for this row.
+        # Asserted in that direction rather than skipped, because a row that stopped reaching a
+        # permitted address would mean the platform had changed its mind and this file should say
+        # so either way. See PLATFORM_DECODES.
+        assert resolve(forged, policy=POLICY), (
+            f"{row.written!r} decodes to {here} and resolved to nothing"
+        )
+        return
+
     with pytest.raises(BlockedAddressError) as refusal:
         resolve(forged, policy=POLICY)
-    assert row.decodes_to in refusal.value.reason or row.decodes_to == refusal.value.address
+    assert here in refusal.value.reason or here == refusal.value.address
