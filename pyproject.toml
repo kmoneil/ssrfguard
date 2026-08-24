@@ -117,13 +117,32 @@ packages = ["src/ssrfguard"]
 # sdist and run the suite to validate the build. For this package that matters more than usual,
 # because the suite *is* the security argument, and a distribution that ships the code without the
 # corpus that proves it is shipping an unverifiable claim.
+#
+# `docs/` and `examples/` are here for the same reason and are not optional extras. Two files in
+# the suite read them: `tests/test_examples.py` runs every example as a subprocess, and
+# `tests/test_docs.py` resolves every link and checks the counts the prose quotes against the
+# shipped table. Ship `tests/` without them and a packager's build fails on a missing directory,
+# which is the shape of failure that gets a suite disabled downstream rather than investigated.
+# `tests/test_packaging.py::test_the_sdist_carries_everything_the_suite_reads` is what keeps this
+# list and that dependency in agreement.
+#
+# `scripts/` and `CONTRIBUTING.md` are here for the same reason and were both found by that test's
+# neighbours rather than by reasoning. `test_packaging.py` imports `lanes` from `scripts/`, so
+# without it the suite could not even be *collected* from an sdist, which is a worse failure than
+# any assertion in it. And the shipped README links to `CONTRIBUTING.md`, so leaving it out put a
+# dead link on the PyPI page, which is the same defect `tests/test_no_gitignored_references.py`
+# exists to prevent, aimed at the one reader who cannot clone the repository to work around it.
 [tool.hatch.build.targets.sdist]
 include = [
   "/src",
   "/tests",
+  "/docs",
+  "/examples",
+  "/scripts",
   "/README.md",
   "/CHANGELOG.md",
   "/SECURITY.md",
+  "/CONTRIBUTING.md",
   "/LICENSE",
   "/pyproject.toml",
 ]
@@ -288,6 +307,17 @@ ban-relative-imports = "parents"
 # one that makes them safe.
 "scripts/**" = ["T20"]
 "tests/**" = ["D", "ANN", "S101", "S603", "S607", "PLR2004", "T20"]
+
+# **`examples/` is documentation that runs, so printing is what it does.** T20 is inverted here
+# the same way it is for `scripts/`. S104 and S101 join it for the same reason the test corpora
+# get them: an example that shows `169.254.169.254` being refused has to contain that address,
+# and an example that demonstrates an invariant asserts it.
+#
+# **D and ANN stay armed**, which is the deliberate difference from `tests/`. Every example is
+# read before it is run, so its docstrings are the larger half of what it is for, and the
+# annotations are part of showing what a function hands back. A test is read when it fails; an
+# example is read on purpose.
+"examples/**" = ["T20", "S101", "S104"]
 
 # **The address corpora are hostile input by construction.** A test that proves
 # `http://2130706433/` is refused has to contain `2130706433`, and a test that proves the

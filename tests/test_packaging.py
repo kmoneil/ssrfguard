@@ -131,3 +131,52 @@ def test_the_package_docstring_example_is_true() -> None:
     )
     assert results.attempted > 0, "the docstring stopped carrying an example, so this checks none"
     assert results.failed == 0, f"{results.failed} of {results.attempted} docstring examples fail"
+
+
+def test_the_sdist_carries_everything_the_suite_reads(pyproject: dict) -> None:
+    """A packager who runs the suite from an sdist must have the files it opens.
+
+    `tests/` ships so downstream rebuilds can run the suite, which is this project's security
+    argument. Two files in that suite read outside it: `test_examples.py` runs every example as a
+    subprocess, and `test_docs.py` resolves every link and checks the counts the prose quotes.
+    Shipping the suite without those directories turns a passing build into a missing-directory
+    error at somebody else's site, and a suite that fails on arrival gets disabled rather than
+    read.
+    """
+    included = set(pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["include"])
+    # `scripts/` is the one that bites hardest: this file imports `lanes` from it at module
+    # scope, so leaving it out makes the suite uncollectable rather than merely failing.
+    for path in ("/tests", "/docs", "/examples", "/scripts"):
+        assert path in included, (
+            f"{path} is not in the sdist, and the suite reads it. Either add it back or "
+            f"stop shipping the tests that open it."
+        )
+
+
+def test_the_sdist_carries_every_document_the_readme_links_to(pyproject: dict) -> None:
+    """A dead link on the PyPI page is aimed at the reader who cannot clone around it."""
+    included = set(pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["include"])
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    linked = {
+        target
+        for target in re.findall(r"\]\(([^)#\s]+)\)", readme)
+        if not target.startswith(("http://", "https://", "mailto:"))
+    }
+    missing = sorted(
+        target
+        for target in linked
+        if f"/{target}" not in included and f"/{target.split('/')[0]}" not in included
+    )
+    assert not missing, (
+        f"the README links {missing}, which the sdist does not carry, so those links are dead "
+        f"on the PyPI page"
+    )
+
+
+def test_the_paths_the_sdist_lists_are_actually_there() -> None:
+    """So the list above cannot go on naming something that has been deleted."""
+    for path in ("tests", "docs", "examples", "scripts", "CONTRIBUTING.md"):
+        assert (REPO_ROOT / path).exists(), (
+            f"{path} is gone but the sdist still lists it; hatchling will not complain, "
+            f"and the first person to notice would be a downstream packager"
+        )

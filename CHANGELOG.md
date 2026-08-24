@@ -367,6 +367,36 @@ All notable changes to this project are documented here. The format follows
   between them ever does. The suite sat at 100% statements with two branches unexercised. One of
   them was `AsyncClient(transport=…)`, a documented path on a shipped client surface that no test
   had ever constructed. Both are now covered and the floor is 99%.
+- **A documentation tree, and nine examples that run.** `docs/` carries eight task-shaped guides:
+  getting started, configuring a policy, the clients, errors, using the pieces directly, the
+  address table, what it costs, and why this exists. The README was one page trying to be all of
+  them, so the arguments that make this package worth installing were competing for space with
+  the field reference somebody needs on their second day.
+- **`examples/` is executed rather than described.** Nine runnable files, each working with no
+  arguments, no network and no fixtures, and every one of them run as a subprocess by
+  `tests/test_examples.py`. A documented snippet that stopped working is worse than no snippet:
+  it is copied, blessed by its position in a README, and wrong. The headline is
+  `examples/03_the_pin.py`, which scripts a nameserver that answers honestly once and then moves
+  the record to the metadata endpoint, and shows the lookup count that gives the seam away. It
+  says in its own docstring what a stand-in resolver cannot prove, and points at the real
+  nameserver in `tests/test_rebinding.py` for the half it cannot.
+- **`tests/test_docs.py`, because prose rots silently and for readers rather than for
+  maintainers.** Every relative link in every committed markdown file has to resolve, anchors
+  included, so a renamed heading fails a build instead of leaving a link that still looks right.
+  The counts `docs/address-table.md` quotes, 60 rows and 13 permitted and 5 translated and 5
+  metadata endpoints, are read out of the shipped table rather than typed, so refreshing the
+  registry updates the prose or fails. The registry snapshot date is checked the same way. And
+  the cost table appears in both the README and `docs/cost.md` on purpose, so every row of the
+  first is required to appear in the second.
+- **`docs/`, `examples/`, `scripts/` and `CONTRIBUTING.md` now ship in the sdist**, which is a
+  correctness fix rather than a courtesy and was found by the two files above. `tests/` ships so
+  downstream rebuilds can run the suite, and that suite reads outside itself: the new tests open
+  `docs/` and `examples/`, and `tests/test_packaging.py` imports `lanes` from `scripts/`, so
+  without it the suite could not be *collected* from an sdist at all. Separately, the shipped
+  README links to `CONTRIBUTING.md`, which was not in the distribution, so the PyPI page carried
+  a dead link aimed at the one reader who cannot clone the repository to work around it.
+  `test_the_sdist_carries_everything_the_suite_reads` and
+  `test_the_sdist_carries_every_document_the_readme_links_to` keep the list honest.
 
 ### Proven
 
