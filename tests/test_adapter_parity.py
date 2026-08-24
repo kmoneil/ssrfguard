@@ -17,7 +17,16 @@ inferred from a suite that quietly only tests one side:
    the merged proxy mapping by requests and can refuse it alone. ``SafeTransport`` cannot: httpx
    builds a second transport for an explicit ``proxy=`` and never consults ours, which is why
    the httpx surface needs a client and the requests surface does not.
-3. *``socket_options`` are applied before connect on ``Client`` and after connect on
+3. *requests checks the URL twice per request and httpx checks it once.* ``SafeAdapter``
+   validates in ``get_adapter``, per request and with the path on it, and again in
+   ``_pinned_socket``, per connection and on the origin alone, because a pool reached by some
+   route that never went through ``send`` must still be bound by the policy. httpx's backend is
+   handed a host and a port and never learns the scheme, so its transport is the only place a
+   URL exists. **Reporting mirrors checking**, so an observer sees two ``url`` decisions per
+   request on requests and one on httpx. Comparing the *set* of stages hides this; the test
+   below compares counts.
+
+4. *``socket_options`` are applied before connect on ``Client`` and after connect on
    ``AsyncClient``.* anyio owns socket creation on the asynchronous path, so there is no
    unconnected socket to reach, and getting one would mean writing the stream, and with it the
    ``server_hostname`` line this package's seam exists in order not to have.
@@ -36,6 +45,7 @@ from __future__ import annotations
 import ipaddress
 import socket
 import ssl
+from collections import Counter
 from collections.abc import Iterator
 
 import anyio
@@ -48,7 +58,15 @@ import trustme
 import urllib3.poolmanager
 
 import ssrfguard.httpx as ssrfguard_httpx
-from ssrfguard import Address, BlockedAddressError, BlockedURLError, Policy, SSRFGuardError, connect
+from ssrfguard import (
+    Address,
+    BlockedAddressError,
+    BlockedURLError,
+    Decision,
+    Policy,
+    SSRFGuardError,
+    connect,
+)
 from ssrfguard.httpx import AsyncSafeBackend, SafeBackend, SafeTransport
 from ssrfguard.requests import SafeAdapter
 from ssrfguard.resolvers import UdpResolver
@@ -728,3 +746,122 @@ def test_every_client_accepts_the_resolver_that_has_a_deadline(
     assert response.status_code == 200
     assert [r.path for r in server.received] == ["/asked"]
     assert asked > 0, "the shipped resolver was not the one that answered"
+
+
+# ---------------------------------------------------------------------------------------------
+# The observer, on every surface
+# ---------------------------------------------------------------------------------------------
+
+
+class Recording:
+    """An observer that keeps every decision it is handed."""
+
+    def __init__(self) -> None:
+        self.seen: list[Decision] = []
+
+    def __call__(self, decision: Decision) -> None:
+        self.seen.append(decision)
+
+
+def test_every_client_reports_the_same_stages_for_one_request(
+    adapter: Adapter, server: RecordingServer
+) -> None:
+    """**Three surfaces, one set of stages.** A decision reported on httpx and dropped on
+    requests is exactly the drift this file exists to catch, and observability is the easiest
+    place for it to happen: nothing fails when a record is missing.
+    """
+    sink = Recording()
+    resolver = Resolver(**{"watched.test": "127.0.0.1"})
+    with adapter.opened(policy_for(server.port), resolver, None, sink) as client:
+        adapter.fetch(client, f"http://watched.test:{server.port}/seen")
+
+    stages = Counter(decision.stage for decision in sink.seen)
+    assert set(stages) == {"url", "address", "peer"}, f"{adapter.name} reported {sorted(stages)}"
+    assert all(decision.outcome == "permitted" for decision in sink.seen)
+
+    # **Counts, not a set.** requests validates the URL twice per request by design and httpx
+    # once, and reporting mirrors checking; see asymmetry 3 in this file's docstring. A set
+    # comparison passes either way, which is how a surface could quietly stop reporting one of
+    # the two and nothing would notice.
+    expected = 2 if adapter.name == "requests" else 1
+    assert stages["url"] == expected, (
+        f"{adapter.name} reported {stages['url']} url decisions rather than {expected}"
+    )
+    assert stages["address"] == 1
+    assert stages["peer"] == 1
+
+    origins = {decision.url for decision in sink.seen if decision.stage == "url"}
+    assert f"http://watched.test:{server.port}/seen" in origins
+
+    # **The peer record is read, not just counted.** Counting proved the stage fired on every
+    # surface and left its contents free to be empty; the asynchronous client reaches this
+    # through its own peer check rather than through `ssrfguard.connect`, so "the record carries
+    # what it should" is a claim about two implementations.
+    (peer,) = [decision for decision in sink.seen if decision.stage == "peer"]
+    assert str(peer.address) == "127.0.0.1"
+    assert peer.host == "watched.test", "the name is what TLS verifies; the record carries it"
+    assert peer.port == server.port
+    assert peer.reason is None, "a permit names no rule, because none refused it"
+
+
+def test_every_client_reports_a_refused_address_the_same_way(
+    adapter: Adapter, server: RecordingServer
+) -> None:
+    sink = Recording()
+    resolver = Resolver(**{"denied.test": "169.254.169.254"})
+    with (
+        adapter.opened(policy_for(server.port), resolver, None, sink) as client,
+        pytest.raises(BlockedAddressError),
+    ):
+        adapter.fetch(client, f"http://denied.test:{server.port}/never")
+
+    refusals = [d for d in sink.seen if d.outcome == "refused"]
+    assert [d.stage for d in refusals] == ["address"]
+    assert str(refusals[0].address) == "169.254.169.254"
+    assert "Cloud metadata" in (refusals[0].reason or "")
+
+
+def test_a_broken_sink_cannot_fail_a_request_on_any_client(
+    adapter: Adapter, server: RecordingServer
+) -> None:
+    """**The rule that makes this feature safe, asserted per surface rather than once.**
+
+    Each client threads the observer through a different chain of objects, so "the exception is
+    swallowed" is a claim about three code paths and not one.
+    """
+
+    def explode(_decision: Decision) -> None:
+        raise RuntimeError("the sink is broken")
+
+    resolver = Resolver(**{"broken.test": "127.0.0.1"})
+    with adapter.opened(policy_for(server.port), resolver, None, explode) as client:
+        response = adapter.fetch(client, f"http://broken.test:{server.port}/fine")
+
+    assert response.status_code == 200
+    assert [request.path for request in server.received] == ["/fine"]
+
+
+def test_every_client_reports_the_same_stages_over_tls(
+    adapter: Adapter, tls_server: RecordingServer, trust: Trust
+) -> None:
+    """**A separate pool class, and it was reporting nothing.**
+
+    The requests adapter builds one guarded pool class per scheme, so the `https` path is a
+    second copy of the same wiring rather than the same object with a flag on it. Mutation
+    testing found the gap: cutting the observer out of the TLS pool left every observer test
+    green, because all of them fetched `http://`.
+    """
+    sink = Recording()
+    resolver = Resolver(**{"right.test": "127.0.0.1"})
+    with adapter.opened(policy_for(tls_server.port), resolver, trust, sink) as client:
+        response = adapter.fetch(client, f"https://right.test:{tls_server.port}/tls")
+
+    assert response.status_code == 200
+    stages = Counter(decision.stage for decision in sink.seen)
+    assert set(stages) == {"url", "address", "peer"}, f"{adapter.name} reported {sorted(stages)}"
+    assert stages["address"] == 1
+    assert stages["peer"] == 1
+    assert all(decision.outcome == "permitted" for decision in sink.seen)
+    assert {d.url for d in sink.seen if d.stage == "url"} >= {
+        f"https://right.test:{tls_server.port}/tls"
+    }

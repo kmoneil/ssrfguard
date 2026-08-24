@@ -53,7 +53,11 @@ pytestmark = pytest.mark.httpx_adapter
 
 #: Arguments this package adds. They have no counterpart on the httpx class, so the signature
 #: comparison excludes them rather than reporting them as drift every run.
-OURS = frozenset({"policy", "resolver", "resolver_slots"})
+#:
+#: **This set is the decision, and the test below is what makes adding to it deliberate.**
+#: `observer` joined it when decisions gained somewhere to go; every entry here is a surface
+#: this package owns and has to keep working across four constructors.
+OURS = frozenset({"policy", "resolver", "resolver_slots", "observer"})
 
 #: Taken and always refused, so it has no forwarding to assert. httpx would open one.
 REFUSED = frozenset({"uds"})

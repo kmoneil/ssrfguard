@@ -75,6 +75,7 @@ from urllib3.exceptions import ConnectTimeoutError, NameResolutionError, NewConn
 from urllib3.util.retry import Retry
 
 from ssrfguard._connect import connect
+from ssrfguard._observer import Decision, Observer, redacted, report
 from ssrfguard._policy import Policy
 from ssrfguard._resolve import Resolver, resolve
 from ssrfguard.errors import ProxyUnsupportedError, TooManyRedirectsError
@@ -105,6 +106,7 @@ def _pinned_socket(
     tunnel_host: str | None,
     policy: Policy,
     resolver: Resolver | None,
+    observer: Observer | None,
 ) -> socket.socket:
     """Resolve, validate, and connect: the only place this adapter chooses an address.
 
@@ -128,6 +130,7 @@ def _pinned_socket(
             ``CONNECT`` somewhere on this socket.
         policy: The policy to validate against.
         resolver: A stand-in for ``socket.getaddrinfo``, or ``None`` for the real one.
+        observer: Where to report each decision, or ``None``.
 
     Returns:
         A socket connected to an address the policy permitted.
@@ -148,12 +151,13 @@ def _pinned_socket(
     if tunnel_host is not None:
         raise ProxyUnsupportedError(f"{connection.host}:{connection.port}")
 
-    target = policy.check_url(_origin(scheme, dns_host, connection.port))
+    target = policy.check_url(_origin(scheme, dns_host, connection.port), observer=observer)
     try:
-        addresses = resolve(target, policy=policy, resolver=resolver)
+        addresses = resolve(target, policy=policy, resolver=resolver, observer=observer)
         opened = connect(
             addresses,
             policy=policy,
+            observer=observer,
             # urllib3 resolves its own "use the default" sentinel before this point, so this is
             # a number or None. `connect` reads None as "leave the socket at whatever
             # `socket.getdefaulttimeout` returns", where urllib3 would call `settimeout(None)`
@@ -181,7 +185,9 @@ def _pinned_socket(
     return opened
 
 
-def _pool_classes(policy: Policy, resolver: Resolver | None) -> dict[str, type[HTTPConnectionPool]]:
+def _pool_classes(
+    policy: Policy, resolver: Resolver | None, observer: Observer | None
+) -> dict[str, type[HTTPConnectionPool]]:
     """Build the scheme-to-pool-class table for one adapter.
 
     The classes are built per adapter and close over the policy because there is no supported
@@ -193,6 +199,7 @@ def _pool_classes(policy: Policy, resolver: Resolver | None) -> dict[str, type[H
     Args:
         policy: The policy every connection from these pools will validate against.
         resolver: A stand-in for ``socket.getaddrinfo``, or ``None`` for the real one.
+        observer: Where to report each decision, or ``None``.
 
     Returns:
         A table to install as a pool manager's ``pool_classes_by_scheme``.
@@ -214,6 +221,7 @@ def _pool_classes(policy: Policy, resolver: Resolver | None) -> dict[str, type[H
                 tunnel_host=self._tunnel_host,
                 policy=policy,
                 resolver=resolver,
+                observer=observer,
             )
 
     class PinnedHTTPSConnection(HTTPSConnection):
@@ -237,6 +245,7 @@ def _pool_classes(policy: Policy, resolver: Resolver | None) -> dict[str, type[H
                 tunnel_host=self._tunnel_host,
                 policy=policy,
                 resolver=resolver,
+                observer=observer,
             )
 
     # **The two suppressions below are urllib3's own defect, not this subclass's.** `ConnectionCls`
@@ -285,13 +294,14 @@ class SafeAdapter(HTTPAdapter):
     # `ClassVar`, which is what RUF012 asks for, is not available: requests declares this as an
     # annotated instance attribute, and narrowing an inherited one to a class variable is a
     # type error. It is read and never mutated, which is the property the rule is protecting.
-    __attrs__: list[str] = [*HTTPAdapter.__attrs__, "policy", "resolver"]  # noqa: RUF012
+    __attrs__: list[str] = [*HTTPAdapter.__attrs__, "policy", "resolver", "observer"]  # noqa: RUF012
 
     def __init__(
         self,
         *,
         policy: Policy,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         pool_connections: int = DEFAULT_POOLSIZE,
         pool_maxsize: int = DEFAULT_POOLSIZE,
         max_retries: Retry | int = DEFAULT_RETRIES,
@@ -301,6 +311,10 @@ class SafeAdapter(HTTPAdapter):
 
         Args:
             policy: What this adapter is willing to reach.
+            observer: Where to report every decision this adapter makes, or ``None`` to
+                report nothing, which is the default and costs nothing. **Whatever it raises is
+                swallowed**, because a sink that throws on a permitted request would turn an
+                allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
             pool_connections: How many connection pools to cache.
@@ -314,6 +328,7 @@ class SafeAdapter(HTTPAdapter):
         # Assigned before `super().__init__`, which calls `init_poolmanager` before returning.
         self.policy = policy
         self.resolver = resolver
+        self.observer = observer
         super().__init__(
             pool_connections=pool_connections,
             pool_maxsize=pool_maxsize,
@@ -350,7 +365,7 @@ class SafeAdapter(HTTPAdapter):
         # the assignment: urllib3 leaves that table unannotated, so its type is inferred from a
         # literal holding two specific class objects, and no subclass of either can satisfy it.
         self.poolmanager.pool_classes_by_scheme = _pool_classes(  # ty: ignore[invalid-assignment]
-            self.policy, self.resolver
+            self.policy, self.resolver, self.observer
         )
 
     def send(
@@ -427,6 +442,7 @@ class Session(requests.Session):
         *,
         policy: Policy,
         resolver: Resolver | None = None,
+        observer: Observer | None = None,
         pool_connections: int = DEFAULT_POOLSIZE,
         pool_maxsize: int = DEFAULT_POOLSIZE,
         max_retries: Retry | int = DEFAULT_RETRIES,
@@ -436,6 +452,10 @@ class Session(requests.Session):
 
         Args:
             policy: What this session is willing to reach.
+            observer: Where to report every decision this adapter makes, or ``None`` to
+                report nothing, which is the default and costs nothing. **Whatever it raises is
+                swallowed**, because a sink that throws on a permitted request would turn an
+                allow into a deny.
             resolver: A stand-in for ``socket.getaddrinfo``, for tests and for callers with
                 their own.
             pool_connections: How many connection pools to cache.
@@ -445,12 +465,14 @@ class Session(requests.Session):
         """
         super().__init__()
         self.policy = policy
+        self.observer = observer
         # Set for anyone reading the attribute; enforced in `resolve_redirects`, which is what
         # makes it the policy's number rather than a default somebody can reassign past.
         self.max_redirects = policy.max_redirects
         adapter = SafeAdapter(
             policy=policy,
             resolver=resolver,
+            observer=observer,
             pool_connections=pool_connections,
             pool_maxsize=pool_maxsize,
             max_retries=max_retries,
@@ -481,7 +503,7 @@ class Session(requests.Session):
             BlockedURLError: If the URL is not permitted.
             BlockedAddressError: If the host was a literal address the policy denies.
         """
-        self.policy.check_url(url)
+        self.policy.check_url(url, observer=self.observer)
         return super().get_adapter(url)
 
     def resolve_redirects(
@@ -521,6 +543,8 @@ class Session(requests.Session):
         Raises:
             TooManyRedirectsError: If the chain is longer than the policy allows. Raised before
                 the over-limit hop is sent, because requests checks its limit before sending.
+                Reported to the observer first, with the chain walked, because a chain that ran
+                out of hops is the shape of a redirect loop somebody is driving.
         """
         self.max_redirects = self.policy.max_redirects
         try:
@@ -542,6 +566,19 @@ class Session(requests.Session):
                 if walked is None  # pragma: no cover - requests always names the response
                 else tuple(str(hop.url) for hop in [*walked.history, walked])
             )
+            if self.observer is not None:
+                report(
+                    self.observer,
+                    Decision(
+                        stage="redirect",
+                        outcome="refused",
+                        reason=(
+                            f"redirect chain exceeded max_redirects={self.policy.max_redirects}"
+                        ),
+                        url=redacted(chain[-1]) if chain else None,
+                        chain=tuple(redacted(hop) for hop in chain),
+                    ),
+                )
             raise TooManyRedirectsError(self.policy.max_redirects, chain) from exceeded
 
     def rebuild_auth(

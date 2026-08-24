@@ -121,11 +121,22 @@ def test_the_one_known_exception_is_still_the_only_one() -> None:
 
     If `_policy.py` is ever made ASCII, this test fails and tells whoever did it to delete the
     exemption rather than leave a carve-out for a file that no longer needs one.
+
+    **This pins the line's content and not its number.** It used to assert `== [541]`, which is
+    a position, and a position is not what the exemption is about: inserting anything anywhere
+    above that docstring reds this test while the property it guards is untouched. The two
+    things worth catching are a *second* non-ASCII line appearing and the last one going away,
+    and neither of those is a line number.
     """
     text = (REPO_ROOT / "src" / "ssrfguard" / "_policy.py").read_text(encoding="utf-8")
-    non_ascii = [number for number, line in enumerate(text.splitlines(), 1) if not line.isascii()]
+    non_ascii = [line.strip() for line in text.splitlines() if not line.isascii()]
 
-    assert non_ascii == [541], (
-        f"the known non-ASCII line in _policy.py moved or multiplied: {non_ascii}. If the file "
-        f"is now ASCII, delete the exemption in test_the_shipped_package_stays_ascii."
+    assert len(non_ascii) == 1, (
+        f"_policy.py has {len(non_ascii)} non-ASCII lines rather than the one known exception: "
+        f"{non_ascii}. If the file is now ASCII, delete the exemption in "
+        f"test_the_shipped_package_stays_ascii; if it grew, write the character as an escape."
+    )
+    assert "into ``127.0.0.1``" in non_ascii[0], (
+        f"the known non-ASCII line is no longer the circled-digit docstring: {non_ascii[0]}. "
+        f"A different line carrying non-ASCII is a new exemption rather than the old one."
     )
