@@ -6,7 +6,7 @@ Every other SSRF guard in Python validates a hostname and then hands the URL to 
 that resolves DNS a second time. The attacker moves the record in between. This one resolves
 once, validates every answer, and connects to that address, never to a name.
 
-[![Status](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![Status](https://img.shields.io/badge/status-unreleased-lightgrey)](#status)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](#requirements)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](#why-zero-dependencies)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -204,14 +204,17 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**Alpha.** The address table, the policy layer, resolution, the connection layer and all three
-client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
-loopback moves a record between the validation call and the connect call, and the connection
-lands on the address that was validated.
+**Unreleased.** The address table, the policy layer, resolution, the connection layer and all
+three client surfaces are built. The central claim is demonstrated rather than argued: a DNS
+server on loopback moves a record between the validation call and the connect call, and the
+connection lands on the address that was validated.
 
-The classifier stays at `3 - Alpha`. The rebinding proof that no higher classifier was honest
-without now exists, and there is no release yet. [`CHANGELOG.md`](CHANGELOG.md) has what has
-moved.
+**There is no maturity label and no version.** The package carried `3 - Alpha` while the
+rebinding proof was missing, which was the one claim worth withholding, and that proof now
+exists. Alpha would therefore be asserting a maturity rather than withholding one, about
+something nobody can install: version 0.0.0, no tag, nothing on PyPI. The first release picks a
+`Development Status` classifier, and until then this section is the whole of the answer.
+[`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
 ## How this was built
 

@@ -48,12 +48,18 @@ license-files = ["LICENSE"]
 authors = [{ name = "Kevin O'Neil", email = "kevin@oneil.xyz" }]
 keywords = ["ssrf", "security", "dns-rebinding", "http", "url-validation"]
 classifiers = [
-  # Alpha until the DNS-rebinding proof exists. The central claim of this
-  # package is that it connects to the address it validated; until a test flips a DNS record
-  # between validation and connect and asserts the pin held, that claim is unproven and no
-  # higher classifier is honest. Stated here, in README "Status" and in SECURITY.md's support
-  # window, so all three move together.
-  "Development Status :: 3 - Alpha",
+  # **No `Development Status` line, and the omission is the honest answer.** Every value of
+  # that field describes something a reader can install, and there is nothing to install here:
+  # the version is 0.0.0, there is no tag, and nothing has been published.
+  #
+  # `3 - Alpha` sat here to hold the package below any claim the DNS-rebinding proof had not
+  # yet earned. That proof exists now, in `tests/test_rebinding.py` and gated by the `rebind`
+  # lane, so keeping the label would have meant asserting a maturity rather than withholding
+  # one. Which is the failure this omission avoids: a label whose stated condition was met and
+  # which nobody moved.
+  #
+  # The first release picks one, and picking it is part of what that release decides. Said the
+  # same way in README "Status" and in SECURITY.md's support window, so all three move together.
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
