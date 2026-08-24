@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- **The citation scanner can see an `async def` test.** `test_every_test_the_docs_cite_is_there`
+  matched test definitions with `^def (test_\w+)`, so every asynchronous test read as undefined
+  and citing one in a document was impossible: the claim would be reported missing while the test
+  sat in the file it pointed at. Found by citing one. The async client is a documented guarantee
+  of this package, so its evidence has to be nameable, and the pattern's own self-check now
+  carries the case that was broken.
+
 ### Added
 
 - **`ssrfguard.resolvers.UdpResolver`: a resolver with a deadline.** `socket.getaddrinfo` has no
