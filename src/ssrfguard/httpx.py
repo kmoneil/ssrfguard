@@ -22,11 +22,19 @@ being an address tomorrow, is exactly the line this seam exists to not have. The
 therefore deliberate, and a test asserts the returned stream is that class.
 
 **The whole URL policy runs in ``handle_request``**, not in the backend. A network backend is
-handed a host and a port and never learns the scheme, so the scheme, the port, credentials in the
-authority and the shape of the host are decided at the transport, once per request, which is
-also what makes a redirect hop a policy question rather than a client one. The backend
-independently checks the port and every resolved address, so a pool assembled around it directly
-still refuses what the policy refuses.
+handed a host and a port and never learns the scheme, so the scheme, credentials in the authority
+and the length of a URL are decided at the transport, once per request, which is also what makes
+a redirect hop a policy question rather than a client one.
+
+**What the backend decides for itself is every field a host and a port are enough to answer**,
+which is the port, the host against ``allowed_hosts``, and every resolved address. So a pool
+assembled around it directly is bound by those, and is not bound by the three above, and the
+difference is a property of what a backend is told rather than of what anyone remembered to
+call. This paragraph used to say the backend "refuses what the policy refuses", which was true
+of the port and false of ``allowed_hosts`` for two releases: the host is the first argument, so
+it was always decidable here and simply was not decided. ``tests/test_adapter_seam_parity.py``
+now holds the split as a table over ``Policy``'s own fields, so a field added to that class
+fails a test until somebody says which side of this line it falls on.
 
 The alternative shape, which some libraries in this space use, is to rewrite the URL to the
 validated address and re-set ``Host:`` and SNI by hand. It costs three things this seam does not:
@@ -212,6 +220,35 @@ def _check_port(policy: Policy, port: int) -> None:
         raise BlockedURLError(
             f"{_TCP}://{port}", f"port {port} is not in allowed_ports ({allowed})"
         )
+
+
+def _check_origin(policy: Policy, host: str, port: int) -> None:
+    """Check everything about an origin a backend is in a position to decide.
+
+    **Both fields, in one function, called from both backends.** The port check shipped here on
+    its own and the host check did not, so a caller assembling their own pool got the narrowing
+    ``allowed_ports`` expresses and not the one ``allowed_hosts`` expresses, silently. Which
+    fields belong here is not obvious from a backend's signature, so it is a function with a
+    name rather than two calls somebody has to remember to keep together, for the reason
+    ``ssrfguard._connect.exhausted`` is shared: a rule spelled twice is a rule that drifts.
+
+    **Before resolution**, which is where the port check already was and is worth stating. A
+    host this policy will not reach should cost no lookup, and a lookup that happens anyway
+    tells an attacker's nameserver their URL was tried.
+
+    ``tests/test_adapter_seam_parity.py`` holds the split as a table, so a field added to
+    :class:`~ssrfguard.Policy` has to say whether a seam can decide it.
+
+    Args:
+        policy: The policy to check against.
+        host: The host about to be resolved, as httpcore holds it.
+        port: The port about to be connected to.
+
+    Raises:
+        BlockedURLError: If the policy allows neither.
+    """
+    _check_port(policy, port)
+    policy.check_host(host)
 
 
 def _verify_peer(
@@ -409,7 +446,7 @@ class SafeBackend(httpcore.NetworkBackend):
             ConnectError: If the name does not resolve, or every validated address refused the
                 connection, again matching httpcore, so httpx maps it as it always has.
         """
-        _check_port(self.policy, port)
+        _check_origin(self.policy, host, port)
         target = _origin_target(host, port)
         try:
             addresses = resolve(
@@ -968,7 +1005,7 @@ class AsyncSafeBackend(httpcore.AsyncNetworkBackend):
             ConnectError: If the name does not resolve, or every validated address refused the
                 connection.
         """
-        _check_port(self.policy, port)
+        _check_origin(self.policy, host, port)
         target = _origin_target(host, port)
         lookup = functools.partial(
             resolve, target, policy=self.policy, resolver=self.resolver, observer=self.observer

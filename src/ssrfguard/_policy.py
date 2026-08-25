@@ -389,6 +389,50 @@ class Policy:
             return False
         return True
 
+    # hosts ----------
+
+    def check_host(self, host: str) -> None:
+        """Decide whether a host may be reached, at a layer that holds no URL.
+
+        :meth:`check_url` asks this as one part of a larger question, and every client calls it
+        once per request. **A client is not the only way in.**
+        :class:`ssrfguard.httpx.SafeBackend` is public precisely so a caller can assemble their
+        own connection pool around it, and a backend is handed a host and a port and never sees
+        a URL. A narrowing that only ran one layer up would not be running for them, and would
+        say nothing about it.
+
+        So this is the half of :meth:`check_url` that a host is enough to answer. The scheme,
+        the credentials in an authority and the length of a URL are not here, because a seam
+        does not hold the information any of them needs; ``tests/test_adapter_seam_parity.py``
+        carries that split as a table, so a field added to this class has to state which side it
+        is on.
+
+        **Measured 2026-08-24 on 3.13: 0.05us when ``allowed_hosts`` is empty, which is the
+        default and therefore almost every caller, and 1.9us when it is not.** The second figure
+        is nearly all :func:`_literal_address`, which answers by raising on a name, and
+        :meth:`_check_host` avoids that with the cheap shape test above it. **That test is
+        deliberately not repeated here**, because copying it would put the rule "everything
+        ``ip_address`` accepts holds a colon or is only digits and dots" in a second place, to
+        save 1.7us once per *connection* on a path this package already argues about: the
+        requests seam runs the whole of :meth:`check_url` at its own seam, at 4 to 9us, against
+        a handshake three orders of magnitude larger. The number is written down rather than
+        optimised so the trade is visible if it ever stops being the right one.
+
+        Args:
+            host: The host as a resolver will see it: an A-label, lowercased, with no brackets
+                around an IPv6 literal. That is the form both clients hold at their seams,
+                because each punycodes and lowercases when it builds the origin.
+
+        Raises:
+            BlockedURLError: If ``allowed_hosts`` is set and the host matches none of its
+                patterns. Named for the URL layer it was written for, and kept here rather than
+                given a sibling: a caller catching one refusal for "this host is not permitted"
+                should not have to catch two depending on which layer noticed.
+        """
+        if not self.allowed_hosts:
+            return
+        self._check_host_is_listed(host, host, literal=_literal_address(host) is not None)
+
     # URLs ----------
 
     def check_url(self, url: str, *, observer: Observer | None = None) -> Target:

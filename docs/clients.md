@@ -36,6 +36,24 @@ For `requests` the situation is reversed: requests hands the adapter the merged 
 so a bare `SafeAdapter` can refuse a proxy on its own. `Session` still exists because of the
 mounting problem below.
 
+### What a backend decides on its own
+
+If you do assemble a pool around `SafeBackend` or `AsyncSafeBackend`, it is worth knowing exactly
+what you are and are not getting, because a backend is handed a host and a port and never sees a
+URL.
+
+| Decided at the backend | Only decided by a client or transport |
+| ---------------------- | ------------------------------------- |
+| `allowed_ports`        | `allowed_schemes`: httpcore decides whether to start TLS *after* `connect_tcp` returns |
+| `allowed_hosts`        | `allow_userinfo`: there is no authority at this layer, only a host |
+| `denied_networks` and `allowed_networks`, against every resolved address | `max_url_length`: there is no URL to measure |
+| `on_partial_block` and `max_connection_attempts` | `max_redirects` and `sensitive_headers`: a chain belongs to the client |
+
+The right-hand column is what `Client`, `AsyncClient` and `Session` add by checking the whole URL
+once per request. The split is not a matter of effort; it is what a backend is told.
+`tests/test_adapter_seam_parity.py` holds it as a table over `Policy`'s own fields, so a new field fails a
+test until it is placed on one side or the other.
+
 ## The failure that is silent
 
 An adapter is only mounted against the prefixes it was mounted against.

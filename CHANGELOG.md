@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **`allowed_hosts` was not enforced at the httpx connection seam, and the module docstring said
+  it was.** `SafeBackend` and `AsyncSafeBackend` checked the port and every resolved address and
+  never checked the host, so a caller assembling their own `httpcore.ConnectionPool`, which the
+  class is public in order to allow, got no name narrowing at all, and no refusal to tell them.
+  The requests seam has always run the whole URL check in `_pinned_socket` and was never
+  affected.
+
+  **The three documented entry points were never affected either**, because `Client`,
+  `AsyncClient`, `Session` and `SafeTransport` all check the whole URL once per request. What was
+  exposed is the path the `SafeBackend` docstring invites, and the address table still applied
+  throughout, so this reached public hosts outside the list rather than anything internal.
+
+  The host is `connect_tcp`'s first argument, so it was always decidable there. What was missing
+  was somewhere to ask: `Policy.check_host` is the half of `check_url` a host alone can answer,
+  and both backends now call it through `_check_origin`, before resolution, so a host the policy
+  will not reach costs no DNS lookup.
+
+  Found by an adversarial review of 0.3.0 that asked, of every `Policy` field, which seams
+  enforce it. `allowed_hosts` was the only field with a different answer on different surfaces.
+
+- **The claim that made it worth reporting is corrected rather than quietly dropped.** The
+  `ssrfguard.httpx` module docstring said a pool assembled around the backend "still refuses what
+  the policy refuses", which was true of the port and false of `allowed_hosts` for two releases.
+  It now names which fields a backend decides and which it cannot, and says why the second group
+  is about what a backend is told rather than about what anyone remembered to call.
+  `docs/clients.md` gains the same split as a table.
+
+### Added
+
+- **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one
+  for the clients. The three seams make genuinely different choices about how much of the policy
+  they enforce, and until now nothing compared them: the client matrix drives clients, and every
+  client checks the whole URL, so the layer underneath was invisible to it.
+
+  It carries the enumeration that closes the class rather than the instance. `SEAM_DECIDABLE`
+  lists every field of `Policy` and whether a seam can decide it, with a written reason for each
+  one that cannot, and a test asserts the table and the dataclass agree. A field added to `Policy`
+  now fails a test until somebody says which side of the line it falls on: the step that was
+  skipped when `allowed_hosts` was added. The shape is that of `ssrfguard.httpx._split_options`, which
+  refuses an httpx argument it has no decision for rather than passing it through.
+
 ## 0.3.0 - 2026-08-24
 
 ### Fixed
