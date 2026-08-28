@@ -4,8 +4,13 @@
 #
 # Install once:  .venv/bin/pre-commit install
 # Never commit with --no-verify.
+#
+# **`commit-msg` joined the list, so an existing checkout needs `pre-commit install` again.**
+# pre-commit writes one file per hook type into `.git/hooks/`, and a checkout installed before
+# that entry existed has no `commit-msg` file at all: the hook below is configured, reads as
+# configured, and never runs. Nothing warns you. `ls .git/hooks/` is the check.
 
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
 default_stages: [pre-commit]
 
 repos:
@@ -129,6 +134,23 @@ repos:
         name: no new secrets (detect-secrets)
         entry: .venv/bin/detect-secrets-hook --baseline .secrets.baseline
         language: system
+
+      # commit-msg only, and it is the reason that stage is installed at all.
+      #
+      # **A hook on the message file is the only local gate that cannot be routed around by how
+      # the message was supplied.** A check on the `git commit` command line sees `-m`, and
+      # nothing else: not `-F file`, not an editor session, not `--amend` reusing what was
+      # already there. This one runs on the assembled message, after every one of those paths
+      # has produced it and before the commit object exists.
+      #
+      # `--history` is deliberately absent. The lane scans the whole history; this scans the one
+      # message being written. Scanning history here would fail a commit for something an
+      # ancestor did, at the moment somebody is least able to act on it.
+      - id: no-attribution
+        name: no tool attribution in the commit message
+        entry: .venv/bin/python scripts/check_attribution.py
+        language: system
+        stages: [commit-msg]
 
       # pre-push only: too slow for every commit, and the point of the gate is that nothing
       # broken leaves the machine.
