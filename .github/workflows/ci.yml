@@ -61,6 +61,56 @@ jobs:
       - run: uv run --frozen python scripts/lanes.py gates
 
   # ---------------------------------------------------------------------------
+  # No commit message and no PR body carries a tool-attribution trailer or a
+  # link into a private session.
+  #
+  # **This is the only layer that sees a commit authored somewhere else.** The
+  # setting that stops them being generated lives on one machine, and the
+  # commit-msg hook lives in one checkout; a cloud session has neither. This
+  # repository already paid for that gap once, with a 74-commit rewrite and
+  # three repointed release tags.
+  #
+  # `fetch-depth: 0` is load-bearing rather than cautious. The default checkout
+  # is shallow, `git log` over it walks one commit, and this lane would report
+  # green having read almost nothing -- the exact shape of failure the `egress`
+  # lane's note argues about. The checker fails rather than skips when the walk
+  # is refused, so a shallow checkout is a red build, not a quiet pass.
+  #
+  # No `uv sync`: the checker imports only the standard library, so a bare
+  # interpreter is the whole environment it needs.
+  # ---------------------------------------------------------------------------
+  attribution:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - run: uv run --no-project --python 3.13 python scripts/lanes.py attribution
+      # The PR body is not in git, so it needs the event payload, which only a
+      # pull_request run has.
+      #
+      # **The body goes through `env`, never into the `run` script directly.**
+      # `${{ github.event.pull_request.body }}` interpolated into a shell line
+      # is command injection with the body as the payload: a PR whose
+      # description contains a backtick or `$(...)` would execute it on the
+      # runner. Reading it from the environment means the shell never parses it.
+      # That this repository's whole subject is the gap between what you
+      # validated and what you reached is why the safe spelling is not optional
+      # here.
+      - name: no attribution in the pull request body
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"
+          uv run --no-project --python 3.13 python scripts/check_attribution.py \
+            "$RUNNER_TEMP/pr-body.txt"
+
+  # ---------------------------------------------------------------------------
   # The claim on the front of the README, checked against a built artifact.
   #
   # **Deliberately not `uv sync`.** This lane builds the wheel and installs it

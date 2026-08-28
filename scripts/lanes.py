@@ -97,6 +97,23 @@ LANES: tuple[Lane, ...] = (
         command=("pre-commit", "run", "--all-files", "--hook-stage", "pre-commit"),
     ),
     Lane(
+        name="attribution",
+        checks=(
+            "that no commit message and no pull request body carries a tool-attribution "
+            "trailer or a link into a private session. See scripts/check_attribution.py for "
+            "which forms count and why each one is anchored the way it is"
+        ),
+        needs=(
+            "git, the full history, and nothing else: the checker is stdlib-only, so this lane "
+            "runs on a bare interpreter rather than paying for a sync. **A shallow clone would "
+            "pass this while proving nothing**, which is why ci.yml checks out with "
+            "`fetch-depth: 0` and the checker exits non-zero rather than empty-handed when git "
+            "cannot walk the range. The PR body is not in git at all, so ci.yml scans it as a "
+            "second step that only a pull_request event has the payload for"
+        ),
+        command=("python", "scripts/check_attribution.py", "--history"),
+    ),
+    Lane(
         name="zero-deps",
         checks=(
             "the claim on the front of the README: a built wheel declares no unconditional "
