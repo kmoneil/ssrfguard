@@ -280,6 +280,7 @@ Both halves of the policy layer are public, and neither performs any I/O:
 
 ```python
 policy.check_url(url)          # -> Target, or raises
+policy.check_host(host)        # -> None, or raises
 policy.check_address(address)  # -> None, or raises
 policy.permits_address(ip)     # -> bool, for when a refusal is an expected outcome
 ```
@@ -288,3 +289,10 @@ policy.permits_address(ip)     # -> bool, for when a refusal is an expected outc
 hosts, length, and, when the host is a literal address, the address itself. It never resolves
 anything, so a hostname always survives it. See
 [Using the pieces directly](building-blocks.md) for what to do with the result.
+
+`check_host` is the part of that question a host alone can answer, which today is
+`allowed_hosts`. It is for code that is handed a host and never a URL, such as a connection
+seam: `SafeBackend` and `AsyncSafeBackend` call it before they resolve anything. Pass the host the
+way a resolver will see it, as a lowercased A-label with no brackets around an IPv6 literal. A
+host outside the list raises `BlockedURLError`, the same refusal `check_url` raises for it, so a
+caller catching one does not have to catch two depending on which layer noticed.

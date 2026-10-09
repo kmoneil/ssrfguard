@@ -67,6 +67,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`Policy.check_host(host)`**, the part of `check_url` a host alone can answer, which today is
+  `allowed_hosts`. It arrived with the `allowed_hosts` fix above, because a connection seam is
+  handed a host and a port and never sees a URL, so a narrowing that only ran inside `check_url`
+  was not running there. It is public because `SafeBackend` is: a caller assembling their own
+  seam needs the same question to ask. It raises `BlockedURLError`, the refusal `check_url` raises
+  for the same host, and it is listed with the other checks in `docs/policy.md`.
+
 - **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one
   for the clients. The three seams make genuinely different choices about how much of the policy
   they enforce, and until now nothing compared them: the client matrix drives clients, and every
