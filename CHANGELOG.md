@@ -89,9 +89,12 @@ All notable changes to this project are documented here. The format follows
 - **Benchmarks for the per-request and per-connection paths**, `tests/benchmarks/`, compared
   against a baseline saved on the same machine: `check_url` on every shape the `cost` lane
   reports, `resolve` validating four answers, and `check_address`. They run on the same corpora as
-  the `cost` lane and on the calling thread's CPU time, and on unchanged code they drift at most 5%
-  against their own baseline, which is what lets a 10% threshold on the mean mean something. Two
-  allocation ceilings ride with them, on the worst accepted URL and the hostile one, through
+  the `cost` lane and on the calling thread's CPU time. On unchanged code they have drifted up to
+  7.5% against their own baseline, which is what lets a 10% threshold on the mean mean something,
+  if narrowly. **The baseline is the weak point**: one saved while the machine was busy came out
+  up to 14% slow on the two fastest benchmarks, which would have hidden a regression that size, so
+  save it on a quiet machine and compare against it once before trusting it. Two allocation
+  ceilings ride with them, on the worst accepted URL and the hostile one, through
   pytest-memray. **Not a lane and not collected by default**: a duration means something only next
   to another one from the same machine, and CI has no baseline. `tests/test_cost.py` remains the
   gate that runs everywhere.

@@ -21,6 +21,12 @@ machine this was written on, three runs of unchanged code against their own base
 most 5% on any benchmark, and a slowdown injected into ``check_url`` failed the compare at 88%. A
 machine that drifts more than that against itself needs a quieter run, not a wider threshold.
 
+**Measured again on 2026-10-09, with less headroom:** three runs against a fresh baseline drifted
+up to 7.5%. The baseline saved before that one was worse: taken while the machine was busy, it
+came out 10 to 14% slow on the two fastest benchmarks, so every later run looked faster than it
+and a regression that size would have passed. The compare only fails on the slow side, which is
+why a slow baseline is the dangerous one. Compare against a new baseline once before trusting it.
+
 **The workload is ``tests/cost_corpus.py``, not a second definition of it**, so this and the
 ``cost`` lane cannot disagree about what a representative URL is. The same two traps are handled
 the same way: the clock is this thread's CPU time, because wall clock absorbs every descheduling
