@@ -57,6 +57,14 @@ All notable changes to this project are documented here. The format follows
   now gives the command and the reason, and `tests/test_docs.py` fails if the workflow runs an
   `ifconfig` that the setup section does not mention.
 
+- **The `leaks` lane failed on macOS, on sockets the platform opened.** macOS's `getaddrinfo`
+  opens a kernel control socket and a connection to mDNSResponder on its first call and keeps
+  both for the life of the process, so the first test in a run to resolve anything was reported
+  as leaking them: `test_encodings.py`'s octal row. CI's `leaks` job runs on Ubuntu, where nothing
+  is kept, and was green. The leak check now looks up `localhost` once before the first test, so
+  those sockets are already open when it takes its first count. Nothing is exempted, and every
+  socket a test opens is still counted.
+
 ### Added
 
 - **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one
