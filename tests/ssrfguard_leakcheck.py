@@ -20,12 +20,17 @@ What it *does* depend on is timing, and two things had to be handled before this
 flaky check. Both are written up on ``_settled``, because both are the difference between a leak
 report and a report about a socket that was closed correctly a moment ago.
 
+A third is not timing, and is handled before the first test rather than after each one: the
+sockets the platform's resolver opens on its first lookup and keeps for the life of the process.
+That is written up on ``_platform_resolver_opened``.
+
 A leak is described by its peer rather than by its number. A leak report nobody can act on is a
 lane that goes red until somebody deletes it.
 """
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import os
 import resource
@@ -46,6 +51,11 @@ _MAX_PROBED_FD = 4096
 #: loaded machine does not produce a false report, short enough that a real leak is not a
 #: minute of waiting per test.
 _SETTLE_SECONDS = 2.0
+
+#: A name every platform answers without the network: from ``/etc/hosts`` on Linux, and from
+#: mDNSResponder's own records on macOS. A name rather than an address, because only a name
+#: reaches mDNSResponder.
+_WARM_UP_NAME = "localhost"
 
 
 def _candidate_fds() -> Iterator[int]:
@@ -142,6 +152,35 @@ def _settled(before: set[int]) -> set[int]:
         if not leaked or time.monotonic() > deadline:
             return leaked
         time.sleep(0.01)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _platform_resolver_opened() -> None:
+    """Let the C library open the sockets it keeps for good, before any test is watched.
+
+    **macOS's ``getaddrinfo`` opens two sockets on its first call and never closes them**: a
+    kernel control socket, ``com.apple.netsrc``, that it orders answers with, and a connection
+    to ``/var/run/mDNSResponder``, which answers every name on that platform. Both belong to the
+    process rather than to any lookup, so the first test in a run to resolve anything was reported
+    as leaking them: ``test_encodings.py``'s octal row, on the order this suite runs in. That is a
+    report about the platform, and it failed the lane on macOS while CI, on Ubuntu, was green.
+
+    **One lookup of a name opens both, and nothing opens a third.** Measured on macOS: after this,
+    no further socket appeared across every form in the encodings corpus, ``getfqdn`` and
+    ``gethostbyaddr``, repeated over three rounds 90 seconds apart. CI's Ubuntu job was green
+    without this, so whatever the C library does there it keeps nothing, and this costs it one
+    lookup of a name every machine has.
+
+    Opened rather than exempted, because exempting needs to say what a socket is, and the control
+    socket cannot be asked: Python refuses to wrap it, which is what the report's "could not be
+    inspected" was. And an exemption is a rule about which open sockets do not count, in a check
+    whose whole value is that every one does.
+
+    Session-scoped and autouse, so pytest sets it up before the first test's function-scoped
+    fixtures, and so before ``_no_leaked_sockets`` takes its first ``before``.
+    """
+    with contextlib.suppress(OSError):
+        socket.getaddrinfo(_WARM_UP_NAME, None)
 
 
 @pytest.fixture(autouse=True)
