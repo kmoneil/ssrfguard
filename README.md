@@ -207,7 +207,7 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**0.3.0.** The address table, the policy layer, resolution, the connection layer and all three
+**0.4.0.** The address table, the policy layer, resolution, the connection layer and all three
 client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
 loopback moves a record between the validation call and the connect call, and the connection
 lands on the address that was validated.
@@ -218,25 +218,34 @@ surface `SECURITY.md` used to document as simply known. [An observer](docs/obser
 every permit and refusal something a caller can see, where before a decision survived only by
 being raised and only if nobody caught it.
 
-**0.3.0 adds the narrowing that was missing and the detection that was silent**, both opt-in,
+**0.3.0 added the narrowing that was missing and the detection that was silent**, both opt-in,
 both leaving the defaults where they were. [`allowed_hosts`](docs/policy.md) is how a fetcher
 says it only ever talks to two APIs, which is the strongest control here and had no expression
 before. [`RebindingWatch`](docs/observing.md) says when a name resolved somewhere else, which
 this package has always survived and never mentioned.
 
-**And it writes down which promise this package makes.** It guards the connection; the fetch
+**It also wrote down which promise this package makes.** It guards the connection; the fetch
 around it is not ours. [`SECURITY.md`](SECURITY.md) says so with the alternative it was chosen
 over, and `tests/test_scope.py` fails if the boundary erodes.
+
+**0.4.0 closes a gap in that narrowing, and is the upgrade to take if you build your own pool.**
+In 0.3.0, `allowed_hosts` was enforced by every client but not by `SafeBackend` and
+`AsyncSafeBackend`, the httpx connection seams that exist so a caller can assemble their own
+`httpcore` pool. That path got no name narrowing and no refusal to say so. Both now ask
+[`Policy.check_host`](docs/policy.md#checking-a-url-without-making-a-request) before resolving
+anything, and [the clients guide](docs/clients.md#what-a-backend-decides-on-its-own) lists which
+fields a backend can decide. `Client`, `AsyncClient`, `Session` and `SafeTransport` check the whole
+URL on every request and were never affected.
 
 **There is still no maturity label, and that is a decision rather than a deferral.** The package
 carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
 withholding; the proof exists, so keeping it would have asserted a maturity rather than withheld
 one. Promoting it to `4 - Beta` would swap one unearned claim for another. What is true instead
-is measurable and is on this page: 1102 tests, 100% branch coverage, ten gating lanes, a mutation
+is measurable and is on this page: 1145 tests, 100% branch coverage, eleven gating lanes, a mutation
 register of 166 survivors the suite is held against, and **no independent audit**. A reader can
 weigh those. A one-word classifier only asks them to take our word for something.
 
-**0.3.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
+**0.4.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
 the number is about what we are willing to promise not to change.
 [`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
