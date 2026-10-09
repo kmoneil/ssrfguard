@@ -79,6 +79,16 @@ All notable changes to this project are documented here. The format follows
   skipped when `allowed_hosts` was added. The shape is that of `ssrfguard.httpx._split_options`, which
   refuses an httpx argument it has no decision for rather than passing it through.
 
+- **Benchmarks for the per-request and per-connection paths**, `tests/benchmarks/`, compared
+  against a baseline saved on the same machine: `check_url` on every shape the `cost` lane
+  reports, `resolve` validating four answers, and `check_address`. They run on the same corpora as
+  the `cost` lane and on the calling thread's CPU time, and on unchanged code they drift at most 5%
+  against their own baseline, which is what lets a 10% threshold on the mean mean something. Two
+  allocation ceilings ride with them, on the worst accepted URL and the hostile one, through
+  pytest-memray. **Not a lane and not collected by default**: a duration means something only next
+  to another one from the same machine, and CI has no baseline. `tests/test_cost.py` remains the
+  gate that runs everywhere.
+
 ## 0.3.0 - 2026-08-24
 
 ### Fixed

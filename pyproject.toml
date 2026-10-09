@@ -213,6 +213,8 @@ dev = [
   # connection-coalescing question. Asserting the other connection classes and reasoning about
   # this one is what this repository does not do.
   "h2>=4.1",
+  "pytest-benchmark>=5.1",
+  "pytest-memray>=1.7 ; sys_platform != 'win32'",
 ]
 
 # **The lock is resolved for the developer's interpreter, not for the 3.9 floor.**
@@ -453,6 +455,11 @@ norecursedirs = [
   "{arch}",
   "_plans",
   "_tmp",
+  # **`tests/benchmarks` runs when it is named and never otherwise.** A timing means something
+  # only against a baseline saved on the same machine, so it has no business in a lane, and the
+  # `compat` rows install neither pytest-benchmark nor pytest-memray and could not even collect
+  # it. Naming the directory on the command line still collects it; see that module's docstring.
+  "benchmarks",
 ]
 # **Coverage is NOT here, and that is deliberate.** It belongs to the `fast` lane, which owns
 # the flags; see `scripts/lanes.py`. Putting `--cov` in `addopts` makes pytest-cov a hard
