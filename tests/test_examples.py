@@ -15,7 +15,10 @@ flattered by nine files of printing.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
+import socket
+import socketserver
 import subprocess
 import sys
 from pathlib import Path
@@ -116,6 +119,60 @@ def test_example_runs_with_no_arguments(script: Path) -> None:
         f"{done.stderr}"
     )
     assert done.stdout.strip(), f"{script.name} printed nothing, so it demonstrates nothing"
+
+
+#: The most connections any example opens at once: `05_async_client.py` gathers eight requests.
+BUSIEST_EXAMPLE_CONCURRENCY = 8
+
+
+def test_regression_example_backlog_the_loopback_server_queues_the_busiest_example(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The examples' server asked for a listen queue of five, and one example opens eight.
+
+    `socketserver.TCPServer.request_queue_size` is 5, and `loopback_server` used it unchanged.
+    `05_async_client.py` gathers eight requests, so whether the connections past the fifth were
+    refused depended on how soon the serving thread got back to `accept()`. On macOS that was
+    about half the time: `test_example_runs_with_no_arguments[05_async_client]` failed 9 runs in
+    20 on the same tree that passed the other 11, and `httpx.ConnectError` was all it said.
+
+    **This reads the figure `listen()` is handed rather than racing for the failure**, because
+    the race is the defect and a test that reproduces it by timing would be the same coin flip.
+    Recording it in `server_activate`, which is where `TCPServer` calls `listen()`, makes the
+    assertion about whichever server `loopback_server` builds rather than about a class name.
+
+    Args:
+        monkeypatch: To record the queue size, to keep the server's name lookup off the system
+            resolver, and to load `_support` without leaving it importable afterwards.
+    """
+    # `HTTPServer.server_bind` names itself with `socket.getfqdn`, and on macOS that leaves a
+    # socket to mDNSResponder open for the life of the process, which the leak check reports as
+    # this test's. The examples never meet it because they run as subprocesses, and the name is
+    # nothing this test asks about.
+    monkeypatch.setattr(socket, "getfqdn", lambda _name="": "localhost")
+    spec = importlib.util.spec_from_file_location("_support", EXAMPLES / "_support.py")
+    assert spec is not None
+    assert spec.loader is not None
+    support = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "_support", support)
+    spec.loader.exec_module(support)
+
+    queued: list[int] = []
+    activate = socketserver.TCPServer.server_activate
+
+    def recording(server: socketserver.TCPServer) -> None:
+        queued.append(server.request_queue_size)
+        activate(server)
+
+    monkeypatch.setattr(socketserver.TCPServer, "server_activate", recording)
+    with support.loopback_server():
+        pass
+
+    assert queued, "loopback_server never called listen(), so this measured nothing"
+    assert queued[0] >= BUSIEST_EXAMPLE_CONCURRENCY, (
+        f"loopback_server listens with a queue of {queued[0]}, and an example opens "
+        f"{BUSIEST_EXAMPLE_CONCURRENCY} connections at once"
+    )
 
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.stem)

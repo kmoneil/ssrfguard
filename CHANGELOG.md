@@ -35,6 +35,14 @@ All notable changes to this project are documented here. The format follows
   is about what a backend is told rather than about what anyone remembered to call.
   `docs/clients.md` gains the same split as a table.
 
+- **`examples/05_async_client.py` failed on about half its runs on macOS**, and with it
+  `tests/test_examples.py`. The examples' loopback server kept `socketserver`'s listen queue of
+  five while that example opens eight connections at once, so whether the overflow was refused
+  depended on how soon the serving thread returned to `accept()`. Measured at 9 failures in 20
+  runs, and none in 20 with the queue raised to 64. Nothing in the package changed: this was
+  the scaffolding, and it matters to a packager rebuilding from the sdist, whose build runs the
+  examples and would have failed at random.
+
 ### Added
 
 - **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one
