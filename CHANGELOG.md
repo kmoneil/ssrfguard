@@ -51,6 +51,12 @@ All notable changes to this project are documented here. The format follows
   `while read` loop, and `tests/test_forbid_exec_bit.py` runs it under `/bin/bash` in both rows
   of the `fast` lane, so the macOS row is now running it under 3.2.
 
+- **`CONTRIBUTING.md` never said that macOS needs a second loopback address.** CI's macOS row
+  aliases `127.0.0.2` onto `lo0` before running the suite, and the only explanation was a comment
+  in the workflow, so on a contributor's Mac three tests failed with `Errno 49`. The setup section
+  now gives the command and the reason, and `tests/test_docs.py` fails if the workflow runs an
+  `ifconfig` that the setup section does not mention.
+
 ### Added
 
 - **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one

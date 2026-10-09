@@ -1,8 +1,8 @@
 """The documentation's checkable claims, checked.
 
 Prose rots differently from code: it fails silently, it fails for readers rather than for
-maintainers, and nothing about a green suite says otherwise. Three kinds of rot are worth a test
-because all three are mechanical.
+maintainers, and nothing about a green suite says otherwise. Four kinds of rot are worth a test
+because all four are mechanical.
 
 **A link that no longer resolves.** A reader who clones this repository is told where to go and
 has to be able to get there, and `tests/test_no_gitignored_references.py` already makes the same
@@ -16,6 +16,10 @@ here, so refreshing the registry either updates the prose or fails the build.
 
 **A guide nobody is pointed at.** A page that exists and is linked from nowhere is a page nobody
 reads, and the index it is missing from reads as complete.
+
+**A step CI takes that a contributor is never told about.** A job that prepares its machine
+before running the suite knows something about the suite that the setup instructions have to say
+too, or the same suite fails on a contributor's machine with errors that look like bugs.
 """
 
 from __future__ import annotations
@@ -300,3 +304,25 @@ def test_the_citation_search_can_actually_fail() -> None:
         "the guide that exists to name its evidence cites almost nothing, so either it changed "
         "shape or this pattern stopped matching"
     )
+
+
+#: Where CI prepares a machine, and where a contributor is told to.
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
+
+
+def test_regression_lo0_alias_contributing_says_what_the_macos_row_does_first() -> None:
+    """CI's macOS row aliases a second loopback address before the suite, and nothing else said so.
+
+    So three tests in `tests/test_connect.py` and `tests/test_rebinding.py` failed on a
+    contributor's Mac with `Errno 49`, and the only explanation in the repository was a comment
+    in the workflow. Every `ifconfig` the workflow runs has to appear verbatim in the setup
+    instructions, so an alias added there for a new test is a failing test until it is written
+    down here too.
+    """
+    commands = re.findall(r"run: (sudo ifconfig .+)", CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert commands, "the workflow aliases nothing any more, so this test is checking nothing"
+
+    setup = CONTRIBUTING.read_text(encoding="utf-8")
+    missing = [command for command in commands if command not in setup]
+    assert not missing, f"CI runs {missing} before the suite and CONTRIBUTING.md never says to"
