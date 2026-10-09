@@ -18,6 +18,18 @@ That is the whole of it. `--all-extras` matters: without httpx and requests inst
 suites skip rather than run, and a green suite that skipped the adapters has proven nothing about
 the two seams this package exists to provide.
 
+**On macOS, give loopback a second address** before running the suite:
+
+```sh
+sudo ifconfig lo0 alias 127.0.0.2 up
+```
+
+Linux routes the whole of `127.0.0.0/8` to loopback, and macOS assigns only `127.0.0.1` to `lo0`.
+The rebinding tests need a second permitted address so they can see which one a connection
+landed on, and without it three tests in `tests/test_connect.py` and `tests/test_rebinding.py`
+fail with `Errno 49`. CI's macOS row runs the same command. The alias lasts until the next
+reboot, so run it again after one.
+
 `.python-version` says 3.13, and `uv.lock` is resolved for it. **The supported floor is 3.10 and
 that is a promise about `src/`, not about the toolchain.** Locking the development tools for the
 floor would drag ruff, mypy and ty years backwards to serve a promise they are not part of. The
