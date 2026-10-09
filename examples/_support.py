@@ -46,6 +46,23 @@ class Server:
         return f"http://127.0.0.1:{self.port}"
 
 
+class _QueueingHTTPServer(http.server.ThreadingHTTPServer):
+    """A threading HTTP server whose listen queue holds every connection an example opens at once.
+
+    **`socketserver.TCPServer` asks the kernel for a queue of five**, and
+    `05_async_client.py` opens eight connections at once. Whether the overflow is refused depends
+    on how soon the serving thread gets back to `accept()`, so the example failed with
+    `ConnectError` on about half its runs on macOS and passed on the rest. Measured: 9 failures in
+    20 runs at the default, none in 20 with the queue raised. A flaky example is a documentation
+    bug that also fails the suite, which is the worse half for a packager rebuilding from the
+    sdist.
+
+    64 is eight times the busiest example, and the kernel clamps it to `somaxconn` regardless.
+    """
+
+    request_queue_size = 64
+
+
 @contextmanager
 def loopback_server(redirects: dict[str, str] | None = None) -> Iterator[Server]:
     """Serve `200 ok` on loopback, with an optional redirect table.
@@ -82,7 +99,7 @@ def loopback_server(redirects: dict[str, str] | None = None) -> Iterator[Server]
         def log_message(self, *_args: object) -> None:
             """Stay quiet, so an example's output is the example's output."""
 
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    httpd = _QueueingHTTPServer(("127.0.0.1", 0), Handler)
     state.port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
