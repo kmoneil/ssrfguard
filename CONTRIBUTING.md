@@ -66,6 +66,12 @@ targets from `--list` and add a test that the two agree. Do not hand-maintain th
 `egress`, which regenerates from IANA and compares. CI runs all of them, but finding out here is
 faster than finding out there.
 
+**Timings are not a lane, and they live in `tests/benchmarks/`.** If you touched `check_url`,
+`resolve` or the address table, save a baseline on `main` and compare your branch against it on the
+same machine. The commands, and the reason a duration cannot be a lane here, are in the docstring of
+`tests/benchmarks/test_hot_paths.py`, which is the one place they are written down. What can be gated
+anywhere, on ratios and counts rather than on a clock, is still gated in `tests/test_cost.py`.
+
 ## What a change needs
 
 **A test that fails before it and passes after.** For anything that changes what gets refused, the
