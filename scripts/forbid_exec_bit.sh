@@ -15,7 +15,13 @@ set -euo pipefail
 
 ALLOWED=()
 
-mapfile -t executables < <(git ls-files --stage | awk '$1 == "100755" { print $4 }')
+# A `while read` loop rather than `mapfile`, which is bash 4. The entry runs whichever `bash` is
+# first on the path, and on a Mac without Homebrew that is `/bin/bash` at 3.2, where `mapfile`
+# is "command not found" on every commit. `tests/test_forbid_exec_bit.py` runs this under it.
+executables=()
+while IFS= read -r file; do
+  executables+=("$file")
+done < <(git ls-files --stage | awk '$1 == "100755" { print $4 }')
 
 violations=()
 for file in "${executables[@]:-}"; do

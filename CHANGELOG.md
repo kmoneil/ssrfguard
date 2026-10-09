@@ -43,6 +43,14 @@ All notable changes to this project are documented here. The format follows
   the scaffolding, and it matters to a packager rebuilding from the sdist, whose build runs the
   examples and would have failed at random.
 
+- **The executable-bit hook failed every commit on a stock Mac.** `scripts/forbid_exec_bit.sh`
+  read its file list with `mapfile`, which arrived in bash 4, and macOS ships 3.2 as `/bin/bash`.
+  The hook runs whichever `bash` is first on the path, so on a Mac without Homebrew's it stopped
+  at `mapfile: command not found` before looking at anything. CI never saw it: the `gates` lane
+  runs on Ubuntu, and GitHub's macOS runners put a newer bash first. It now reads the list with a
+  `while read` loop, and `tests/test_forbid_exec_bit.py` runs it under `/bin/bash` in both rows
+  of the `fast` lane, so the macOS row is now running it under 3.2.
+
 ### Added
 
 - **A parity matrix for the connection seams**, `tests/test_adapter_seam_parity.py`, alongside the one
