@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **The registry generator spells an RFC reference the same way whatever IANA writes.** IANA's
+  special-purpose CSVs moved from `[RFC1918]` to `[RFC 1918]`, and `scripts/refresh_registry.py`
+  passed the spelling through, so the scheduled `egress` lane failed on 51 rows whose ranges,
+  names and verdicts had not moved. The reference is quoted in every refusal, `10.0.0.0/8 is
+  Private-Use (RFC1918)`, so regenerating as the failure message advised would have changed what
+  this package says when it refuses over a typography change upstream. The generator now emits
+  `RFC1918` for either spelling, and a cell carrying both comes out once. The committed table is
+  unchanged: regenerated from today's registries it is identical apart from the snapshot date.
+
 ## 0.4.0 - 2026-10-09
 
 ### Fixed
