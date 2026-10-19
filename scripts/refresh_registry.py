@@ -270,7 +270,10 @@ def _rows(version: int) -> list[tuple[str, str, str, str, str]]:
         text = response.read().decode("utf-8")
     out: list[tuple[str, str, str, str, str]] = []
     for row in csv.DictReader(io.StringIO(text)):
-        rfcs = ", ".join(sorted(set(re.findall(r"RFC\s?\d+", row["RFC"]))))
+        # Spelled `RFC1918` whatever IANA writes. Its CSV moved to `RFC 1918`, and this string is
+        # quoted in every refusal, so passing IANA's spelling through made a typography change
+        # upstream into a change to what this package says when it refuses.
+        rfcs = ", ".join(sorted({f"RFC{n}" for n in re.findall(r"RFC\s?(\d+)", row["RFC"])}))
         name = " ".join(row["Name"].replace('"', "").split())
         name = RENAMES.get(name, name)
         for raw in row["Address Block"].split(","):

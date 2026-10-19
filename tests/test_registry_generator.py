@@ -156,6 +156,26 @@ def test_an_address_block_that_is_not_a_network_stops_the_generator(
         refresh_registry._rows(4)
 
 
+def test_regression_iana_rfc_space_the_reference_keeps_the_spelling_refusals_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IANA's CSV moved from `[RFC1918]` to `[RFC 1918]`, and the generator passed that through.
+
+    The reference is quoted in every refusal, `10.0.0.0/8 is Private-Use (RFC1918)`, so a
+    typography change upstream became a change to what this package says when it refuses, and
+    the `egress` lane failed on 51 rows whose ranges, names and verdicts had not moved. Both
+    spellings, and a section suffix, have to come out as the one the committed table uses.
+    """
+    respelled = FIXED_CSV.replace("[RFC1918]", '"[RFC 1918, Section 3]; [RFC1918]"').replace(
+        "[RFC6890]", "[RFC 6890]"
+    )
+    monkeypatch.setattr(refresh_registry, "urllib", _fake_urllib(respelled))
+
+    rfcs = {cidr: rfc for cidr, _name, rfc, _reach, _note in refresh_registry._rows(4)}
+
+    assert rfcs == {"10.0.0.0/8": "RFC1918", "192.0.0.0/24": "RFC6890"}
+
+
 def _fake_urllib(payload: str) -> Any:
     """Stand in for `urllib.request.urlopen`, serving a fixed CSV.
 
