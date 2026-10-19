@@ -92,6 +92,38 @@ def unused_port() -> int:
         return int(probe.getsockname()[1])
 
 
+def record_sockets(
+    monkeypatch: pytest.MonkeyPatch, kind: type[socket.socket]
+) -> list[socket.socket]:
+    """Build every new socket on this thread as `kind`, and keep a list of them.
+
+    **Only this thread's.** `socket.accept()` builds the socket it returns through the same
+    module-level name this patches, so without the check a listener thread accepting the
+    connection under test is counted as if the code under test had opened it, and is closed on
+    the listener's schedule rather than that code's. Other threads get a plain socket.
+
+    Args:
+        monkeypatch: Undoes the patch at teardown.
+        kind: The class to build instead of a plain socket.
+
+    Returns:
+        The sockets created on this thread while the patch is in place, in order.
+    """
+    here = threading.get_ident()
+    plain = socket.socket
+    opened: list[socket.socket] = []
+
+    def recording(*args: object, **kwargs: object) -> socket.socket:
+        if threading.get_ident() != here:
+            return plain(*args, **kwargs)  # type: ignore[arg-type]
+        sock = kind(*args, **kwargs)  # type: ignore[arg-type]
+        opened.append(sock)
+        return sock
+
+    monkeypatch.setattr(socket, "socket", recording)
+    return opened
+
+
 def test_connects_to_the_pinned_sockaddr(listener: tuple[str, int]) -> None:
     host, port = listener
     with connect([address_for(host, port)], policy=LOOPBACK_OK, timeout=5) as sock:
@@ -238,7 +270,6 @@ def test_a_peer_that_is_not_the_validated_address_is_refused_and_the_socket_clos
     a defence nobody has proven.
     """
     host, port = listener
-    opened: list[socket.socket] = []
 
     # A subclass rather than a patched instance: `socket.socket` uses __slots__, so assigning
     # `getpeername` onto one raises AttributeError.
@@ -246,12 +277,7 @@ def test_a_peer_that_is_not_the_validated_address_is_refused_and_the_socket_clos
         def getpeername(self) -> tuple[str, int]:
             return ("203.0.113.9", port)
 
-    def recording(*args: object, **kwargs: object) -> socket.socket:
-        sock = LyingSocket(*args, **kwargs)  # type: ignore[arg-type]
-        opened.append(sock)
-        return sock
-
-    monkeypatch.setattr(socket, "socket", recording)
+    opened = record_sockets(monkeypatch, LyingSocket)
     with pytest.raises(BlockedAddressError) as caught:
         connect([address_for(host, port)], policy=LOOPBACK_OK, timeout=5)
     assert "rewrote the destination" in caught.value.reason
@@ -262,6 +288,38 @@ def test_a_peer_that_is_not_the_validated_address_is_refused_and_the_socket_clos
     assert all(sock.fileno() == -1 for sock in opened), (
         "a socket that failed the peer check must be closed, not left open and refused"
     )
+
+
+def test_regression_peer_check_race_a_socket_the_listener_accepts_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The peer-check test above failed about one run in seven, on code nobody had changed.
+
+    `socket.accept()` builds the socket it returns through the module-level name that
+    `record_sockets` patches, so the listener's thread accepting the connection was counted as
+    if `connect` had opened it. The listener closes that socket on its own schedule, and the
+    "everything opened was closed" assertion failed whenever it ran first. This listener holds
+    the accepted socket open until after the count, so the losing order happens every time.
+    """
+    server = socket.create_server(("127.0.0.1", 0))
+    accepted: list[socket.socket] = []
+    thread = threading.Thread(target=lambda: accepted.append(server.accept()[0]), daemon=True)
+    thread.start()
+    try:
+        # Patched after the server exists, because `create_server` builds its socket through
+        # the same name, and before the connection arrives, which is when `accept` looks it up.
+        opened = record_sockets(monkeypatch, socket.socket)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+            client.connect(server.getsockname())
+            thread.join(timeout=5)
+        assert accepted, "the listener never accepted, so this proved nothing"
+
+        assert len(opened) == 1, "only the client is this test's socket"
+        assert all(sock.fileno() == -1 for sock in opened)
+    finally:
+        for sock in accepted:
+            sock.close()
+        server.close()
 
 
 def test_the_sockaddr_reaches_connect_byte_for_byte(

@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
   `RFC1918` for either spelling, and a cell carrying both comes out once. The committed table is
   unchanged: regenerated from today's registries it is identical apart from the snapshot date.
 
+- **The peer-check test in `tests/test_connect.py` failed about one run in seven, on code
+  nobody had changed.** It replaces `socket.socket` to record every socket created and then
+  asserts that each one was closed. `socket.accept()` builds its result through that same name,
+  so the listener's thread accepting the connection was recorded too, and the assertion failed
+  whenever it ran before the listener closed its end. The recording now counts only the test's
+  own thread, and a regression test holds the accepted socket open past the count, so that
+  order happens every time rather than one run in seven.
+
 ## 0.4.0 - 2026-10-09
 
 ### Fixed
