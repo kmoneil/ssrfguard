@@ -207,7 +207,7 @@ removed control protects nothing. Both directions are worth reporting.
 
 ## Status
 
-**0.4.0.** The address table, the policy layer, resolution, the connection layer and all three
+**0.4.1.** The address table, the policy layer, resolution, the connection layer and all three
 client surfaces are built. The central claim is demonstrated rather than argued: a DNS server on
 loopback moves a record between the validation call and the connect call, and the connection
 lands on the address that was validated.
@@ -228,7 +228,7 @@ this package has always survived and never mentioned.
 around it is not ours. [`SECURITY.md`](SECURITY.md) says so with the alternative it was chosen
 over, and `tests/test_scope.py` fails if the boundary erodes.
 
-**0.4.0 closes a gap in that narrowing, and is the upgrade to take if you build your own pool.**
+**0.4.0 closed a gap in that narrowing, and is the upgrade to take if you build your own pool.**
 In 0.3.0, `allowed_hosts` was enforced by every client but not by `SafeBackend` and
 `AsyncSafeBackend`, the httpx connection seams that exist so a caller can assemble their own
 `httpcore` pool. That path got no name narrowing and no refusal to say so. Both now ask
@@ -237,15 +237,21 @@ anything, and [the clients guide](docs/clients.md#what-a-backend-decides-on-its-
 fields a backend can decide. `Client`, `AsyncClient`, `Session` and `SafeTransport` check the whole
 URL on every request and were never affected.
 
+**0.4.1 changes nothing in the wheel. It corrects the SBOM beside it.** The one attached to
+0.4.0 described the build environment, 73 components and two of them with published advisories,
+where this page and [`SECURITY.md`](SECURITY.md#provenance) say it is nearly empty. A release
+now generates it from the wheel installed alone, and refuses one that lists anything but
+`ssrfguard`.
+
 **There is still no maturity label, and that is a decision rather than a deferral.** The package
 carried `3 - Alpha` while the rebinding proof was missing, which was the one claim worth
 withholding; the proof exists, so keeping it would have asserted a maturity rather than withheld
 one. Promoting it to `4 - Beta` would swap one unearned claim for another. What is true instead
-is measurable and is on this page: 1145 tests, 100% branch coverage, eleven gating lanes, a mutation
+is measurable and is on this page: 1160 tests, 100% branch coverage, eleven gating lanes, a mutation
 register of 166 survivors the suite is held against, and **no independent audit**. A reader can
 weigh those. A one-word classifier only asks them to take our word for something.
 
-**0.4.0 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
+**0.4.1 rather than 1.0.0**, because the API may still move. Nothing here is known to be wrong;
 the number is about what we are willing to promise not to change.
 [`CHANGELOG.md`](CHANGELOG.md) has what has moved.
 
