@@ -167,14 +167,17 @@ jobs:
       # This does **not** replace the PEP 740 attestation `publish` produces, and the two
       # answer different questions: the attestation says who built this, the SBOM says what is
       # inside it. Shipping only one would leave the other unanswered.
+      #
+      # **From the wheel installed alone, not from this job's environment.** 0.4.0 pointed
+      # `cyclonedx-py` at the interpreter `uv run` resolves, which `uv sync --group build`
+      # above fills with the `dev` group too, and shipped 73 components with this comment
+      # still claiming the wheel. `scripts/make_sbom.py` installs the wheel into a fresh
+      # environment, describes that, and fails this job if the result lists anything but
+      # `ssrfguard` at this version. `ci.yml` rehearses the same script on every change.
       - name: Generate the (nearly empty) SBOM
         run: |
           set -euo pipefail
-          uv tool run --from cyclonedx-bom cyclonedx-py environment \
-            --output-format json --output-file dist/ssrfguard.cdx.json \
-            "$(uv run --frozen python -c 'import sys; print(sys.executable)')" || {
-              echo "SBOM generation failed" >&2; exit 1;
-            }
+          uv run --frozen python scripts/make_sbom.py dist/*.whl dist/ssrfguard.cdx.json
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

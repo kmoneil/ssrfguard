@@ -171,4 +171,7 @@ so there is no long-lived API token in this repository. Each artifact carries a 
 
 Every release also carries a CycloneDX SBOM. It is nearly empty, which is the whole point: this
 package has no runtime dependencies, and the SBOM is that claim in a form a procurement process
-can read without taking our word for it.
+can read without taking our word for it. `scripts/make_sbom.py` generates it from the wheel
+installed alone and fails the release if it lists anything but `ssrfguard`. **The one attached
+to 0.4.0 does not meet that**: it describes the build environment, 73 components of which 72
+are not in the wheel. `CHANGELOG.md` says how that happened.

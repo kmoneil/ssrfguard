@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **The SBOM attached to 0.4.0 describes the machine that built it, not the package.**
+  `pip install ssrfguard` installs one thing, and SECURITY.md calls the release SBOM nearly
+  empty for that reason. The published `ssrfguard.cdx.json` lists 73 components, and 72 of them
+  are not in the wheel or the sdist: pytest, mypy, hatchling, and certifi 2026.7.22 and filelock
+  3.32.3, which now carry a critical and a high advisory. A scanner reading it reports both
+  against ssrfguard 0.4.0. The wheel and sdist are unaffected. `release.yml` pointed `cyclonedx-py`
+  at the build job's environment, which `uv sync --group build` fills with the `dev` group too,
+  and the rehearsal in `ci.yml` built the same document and checked only that it listed
+  something. `scripts/make_sbom.py` now installs the wheel alone into a fresh environment,
+  describes that, and fails the release if the result lists anything but `ssrfguard` at the
+  wheel's version. Both workflows call it, and it refuses the document 0.4.0 shipped.
+
 - **The registry generator spells an RFC reference the same way whatever IANA writes.** IANA's
   special-purpose CSVs moved from `[RFC1918]` to `[RFC 1918]`, and `scripts/refresh_registry.py`
   passed the spelling through, so the scheduled `egress` lane failed on 51 rows whose ranges,
