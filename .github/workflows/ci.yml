@@ -325,14 +325,18 @@ jobs:
       # on a tag is a step whose first run is also the one that matters. This lane already
       # owns the question of what this package's dependency surface contains, and the SBOM
       # is that answer in another format, so the rehearsal belongs here.
+      #
+      # **It used to check that the SBOM listed something, and 73 is something.** Both copies
+      # described the environment they ran in rather than the wheel, and the rehearsal's only
+      # question was whether `components` was non-empty, so it passed the document 0.4.0
+      # shipped. The script is now the one copy, and it refuses anything but `ssrfguard` at
+      # the wheel's version. This job syncs `audit` rather than `build`, so the wheel is built
+      # with isolation here; which backend built it does not change what installing it installs.
       - name: rehearse the release SBOM, so a tag is not where the flags get checked
         run: |
           set -euo pipefail
-          uv tool run --from cyclonedx-bom cyclonedx-py environment \
-            --output-format json --output-file /tmp/ssrfguard.cdx.json \
-            "$(uv run --frozen python -c 'import sys; print(sys.executable)')"
-          python -c "import json,sys; d=json.load(open('/tmp/ssrfguard.cdx.json')); \
-            sys.exit(0 if d.get('bomFormat')=='CycloneDX' and d.get('components') else 1)"
+          uv build --wheel --out-dir /tmp/sbom-dist
+          uv run --frozen python scripts/make_sbom.py /tmp/sbom-dist/*.whl /tmp/ssrfguard.cdx.json
 
   # ---------------------------------------------------------------------------
   # The unit suite again with the socket and file-descriptor leak check armed.
